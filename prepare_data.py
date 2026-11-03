@@ -41,4 +41,3 @@ def load_file_csv_to_panda_dataframe(data_dir='./data/'):
 
 # Thực thi hàm
 df_final = load_all_csv_to_dataframe('./data/')
-print(df_final.head())
