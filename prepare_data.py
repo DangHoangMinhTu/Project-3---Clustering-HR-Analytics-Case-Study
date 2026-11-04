@@ -1,8 +1,9 @@
 import pandas as pd
 import numpy as np
 import os
+from pathlib import Path
 
-def load_file_csv_to_panda_dataframe(data_dir='./data/'):
+def load_all_csv_to_dataframe(data_dir='./data/'):
   # 1. Đọc 3 bảng thông tin và khảo sát
     general_df = pd.read_csv(os.path.join(data_dir, 'general_data (1).csv'))
     emp_survey_df = pd.read_csv(os.path.join(data_dir, 'employee_survey_data (1).csv'))
@@ -40,4 +41,4 @@ def load_file_csv_to_panda_dataframe(data_dir='./data/'):
     return df_merged
 
 # Thực thi hàm
-df_final = load_all_csv_to_dataframe('./data/')
+data_set = load_all_csv_to_dataframe('./data/')
