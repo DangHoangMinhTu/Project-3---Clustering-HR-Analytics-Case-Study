@@ -1,0 +1,480 @@
+% =====================================================================
+% Mid-term Report - Data Analysis with Python
+% Topic 3: Clustering - HR Analytics Case Study
+% Compile: pdflatex main.tex (run twice)
+% Figures are loaded from ./figures/
+% =====================================================================
+
+\documentclass[12pt,a4paper]{article}
+
+% ---------- Packages ----------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage[margin=2.5cm]{geometry}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage[hidelinks]{hyperref}
+
+% ---------- Document formatting ----------
+\setstretch{1.15}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+
+% ---------- Header / footer ----------
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Data Analysis with Python -- Mid-term Report}
+\rhead{\small Class AI67C}
+\cfoot{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------- Helper macros ----------
+% Red marker for text that needs to be filled in
+\newcommand{\tbd}[1]{\textcolor{red}{[#1]}}
+
+% Include a figure if it exists, otherwise show a placeholder
+\newcommand{\safefig}[3][0.85\textwidth]{%
+  \IfFileExists{figures/#2}{%
+    \includegraphics[width=#1]{figures/#2}%
+  }{%
+    \fbox{\parbox[c][4cm][c]{0.7\textwidth}{\centering\color{red}%
+    Missing figure: \texttt{figures/\detokenize{#2}}\\[2pt]#3}}%
+  }%
+}
+
+% ---------- Code listing style ----------
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue!70!black},
+  commentstyle=\color{green!40!black},
+  stringstyle=\color{orange!70!black},
+  breaklines=true,
+  frame=single,
+  language=Python,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  showstringspaces=false
+}
+
+% =====================================================================
+\begin{document}
+
+% =====================================================================
+%                         COVER PAGE
+% =====================================================================
+
+\begin{titlepage}
+    \centering
+
+    % Compact spacing for the cover page
+    \setlength{\parskip}{0pt}
+    \setstretch{1.0}
+
+    % University name
+    {\Large\bfseries NATIONAL ECONOMICS UNIVERSITY\par}
+
+    \vspace{0.15cm}
+
+    {\large\bfseries COLLEGE OF TECHNOLOGY\par}
+
+    \vspace{0.3cm}
+
+    % Decorative line
+    {\large ---------- $\ast$ ----------\par}
+
+    % University logo in the middle space
+    \vspace{0.45cm}
+
+    \IfFileExists{figures/neu_logo.png}{
+        \includegraphics[width=0.19\textwidth]{figures/neu_logo.png}
+    }{
+        \fbox{
+            \parbox[c][2.5cm][c]{0.19\textwidth}{
+                \centering
+                \color{red}
+                Missing logo\\
+                neu\_logo.png
+            }
+        }
+    }
+
+    % Assignment title
+    \vspace{0.65cm}
+
+    {\LARGE\bfseries MID-TERM ASSIGNMENT\par}
+
+    \vspace{0.25cm}
+
+    {\large COURSE: Data Analysis with Python\par}
+
+    % Topic
+    \vspace{0.65cm}
+
+    {\large\bfseries
+    TOPIC: CLUSTERING EMPLOYEES BY WORK BEHAVIOUR\\[3pt]
+    AND SATISFACTION -- HR ANALYTICS CASE STUDY
+    \par}
+
+    % Advisor and class
+    \vspace{0.75cm}
+
+    {\normalsize\bfseries Academic advisor: Mr. Tran Duc Minh\par}
+
+    \vspace{0.15cm}
+
+    {\normalsize\bfseries Class: AI67C\par}
+
+    % Members table
+    \vspace{0.45cm}
+
+    \begin{tabular}{p{5.5cm} p{3.5cm}}
+        \toprule
+        \textbf{Members} & \textbf{Student ID}\\
+        \midrule
+        Dang Hoang Minh TU & 11258574\\
+        Tran Nguyen Khoi & 11253986\\
+        Nguyen Hong Nhat & 11256438\\
+        \bottomrule
+    \end{tabular}
+
+    % Academic year at the bottom
+    \vfill
+
+    {\large\bfseries 2026--2027\par}
+
+\end{titlepage}
+
+% =====================================================================
+%                         ABSTRACT
+% =====================================================================
+
+\pagenumbering{roman}
+
+\begin{abstract}
+This report applies unsupervised learning to the \emph{HR Analytics Case Study}
+dataset, which describes about 4{,}410 employees of a company through
+demographic, job, survey and attendance (swipe-in/swipe-out) records.
+
+The goal is to discover naturally occurring employee segments without using
+any pre-defined label. We integrate the relational files, clean and engineer
+features (including average daily working hours derived from attendance logs),
+and compare three clustering algorithms --- K-Means, Hierarchical (Ward)
+clustering and DBSCAN --- using the Silhouette score, the Elbow method,
+Davies--Bouldin and Calinski--Harabasz indices.
+
+The best model is
+\tbd{best model, k = ?} with a Silhouette score of \tbd{value}.
+The resulting segments are profiled and cross-checked against the
+\texttt{Attrition} column (used only for external validation) to derive
+practical HR recommendations.
+\end{abstract}
+
+% =====================================================================
+%                         TABLE OF CONTENTS
+% =====================================================================
+
+\tableofcontents
+
+\clearpage
+
+% =====================================================================
+%                         MAIN REPORT
+% =====================================================================
+
+\pagenumbering{arabic}
+
+% Add your report chapters below this line.
+
+% Example:
+% \section{Introduction}
+% Your content here.
+
+% =====================================================================
+
+\section{Initial Data Inspection}
+
+Before data preprocessing, an initial inspection was conducted
+to understand the structure and quality of all five datasets.
+The inspection focused on the consistency of the files, the
+relationships between them, file encoding, data types,
+missing values, and duplicate records.
+
+\subsection{Dataset Overview}
+
+The HR Analytics dataset consists of five relational files:
+\texttt{general}, \texttt{employee}, \texttt{manager},
+\texttt{in\_time}, and \texttt{out\_time}.
+Each file contains 4,410 records.
+
+Table~\ref{tab:dataset-overview} summarizes the basic
+information of the five datasets.
+
+\begin{table}[H]
+\centering
+\caption{Overview of the five datasets}
+\label{tab:dataset-overview}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Criteria}
+& \textbf{General}
+& \textbf{Employee}
+& \textbf{Manager}
+& \textbf{In-time}
+& \textbf{Out-time}\\
+\midrule
+Records & 4,410 & 4,410 & 4,410 & 4,410 & 4,410\\
+Attributes & 24 & 4 & 3 & 262 & 262\\
+Missing values & 28 & 83 & 0 & 109080 & 109080\\
+Duplicate records & 0 & 0 & 0 & 0 & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Across the five files, there are 555 attributes in total.
+However, the 22,050 records represent the sum of records
+across files, not the number of unique employees, since the
+same employees are represented in multiple relational files.
+
+\subsection{Column Consistency}
+
+The five files describe different information, so they cannot be
+concatenated; they must be merged later. Consistency was therefore
+checked in two ways. First, the numbers of rows and columns were
+compared (Table~\ref{tab:dataset-overview}): every file has 4,410 rows,
+while the number of columns differs by file (24, 4, 3, 262 and 262).
+Second, the column names of \texttt{in\_time} and \texttt{out\_time},
+which have the same structure (one column per calendar day), were compared.
+They contain \tbd{the same 262 column names in the same order}, so the two
+files can be processed in parallel when computing working hours.
+No column name other than \texttt{EmployeeID} is shared between the
+other files \tbd{confirm}, so no naming conflict (e.g.\ \texttt{\_x},
+\texttt{\_y} suffixes) will appear after merging.
+
+\subsection{Relationships Between Files}
+
+The common column of the five files is \texttt{EmployeeID}. In
+\texttt{in\_time} and \texttt{out\_time} this column is stored in an
+unnamed first column (\texttt{Unnamed: 0}) and is renamed to
+\texttt{EmployeeID}. Table~\ref{tab:key-check} shows the key checks.
+
+\begin{table}[H]
+\centering
+\caption{Primary key / foreign key check on \texttt{EmployeeID}}
+\label{tab:key-check}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{File} & \textbf{Null keys} & \textbf{Duplicate keys}
+& \textbf{IDs not in General} & \textbf{General IDs missing}\\
+\midrule
+General  & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
+Employee & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
+Manager  & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
+In-time  & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
+Out-time & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\texttt{EmployeeID} is the \textbf{primary key} of the \texttt{general}
+dataset (unique and non-null) and the \textbf{foreign key} in the other
+four files, so the relationship is one-to-one. A test merge of
+\texttt{general}, \texttt{employee} and \texttt{manager} on
+\texttt{EmployeeID} returned \tbd{4,410} rows, i.e.\ no record was lost
+or duplicated.
+
+\subsection{File Encoding}
+
+The encoding of each CSV file was tested by decoding the raw bytes.
+\tbd{All five files were successfully decoded as UTF-8 (no BOM, no decoding
+error)}, so no special encoding argument is needed when calling
+\texttt{pd.read\_csv()} and no font or character errors are expected.
+
+\subsection{Data Types}
+
+The data types of each dataset were examined using the
+\texttt{info()} method.
+
+\begin{table}[H]
+\centering
+\caption{Distribution of data types across datasets}
+\label{tab:data-types}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Dataset}
+& \textbf{int64}
+& \textbf{float64}
+& \textbf{str}
+& \textbf{Total attributes}\\
+\midrule
+General & 14 & 2 & 8 & 24\\
+Employee & 1 & 3 & 0 & 4\\
+Manager & 3 & 0 & 0 & 3\\
+In-time & 1 & 12 & 249 & 262\\
+Out-time & 1 & 12 & 249 & 262\\
+\midrule
+\textbf{Total} & \textbf{20} & \textbf{29}
+& \textbf{506} & \textbf{555}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The \texttt{general} dataset contains demographic and job-related
+information. The \texttt{employee} dataset provides employee
+satisfaction and work-life balance information, while the
+\texttt{manager} dataset contains job involvement and
+performance ratings.
+
+The \texttt{in\_time} and \texttt{out\_time} datasets each
+contain 262 attributes, including 249 string attributes,
+12 floating-point attributes, and 1 integer attribute.
+These two files contain attendance-related records and will
+be examined further during feature engineering.
+
+\subsection{Missing Values}
+
+Missing values were identified in the \texttt{general} and
+\texttt{employee} datasets.
+
+\subsubsection{General Dataset}
+
+The \texttt{general} dataset contains 28 missing values
+across two attributes.
+
+\begin{table}[H]
+\centering
+\caption{Missing values in the General dataset}
+\label{tab:general-missing}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Attribute} & \textbf{Missing values}
+& \textbf{Percentage}\\
+\midrule
+NumCompaniesWorked & 19 & 0.43\%\\
+TotalWorkingYears & 9 & 0.20\%\\
+\midrule
+\textbf{Total} & \textbf{28} & \textbf{0.63\%}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Employee Dataset}
+
+The \texttt{employee} dataset contains 83 missing values
+across three attributes.
+
+\begin{table}[H]
+\centering
+\caption{Missing values in the Employee dataset}
+\label{tab:employee-missing}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Attribute} & \textbf{Missing values}
+& \textbf{Percentage}\\
+\midrule
+EnvironmentSatisfaction & 25 & 0.57\%\\
+JobSatisfaction & 20 & 0.45\%\\
+WorkLifeBalance & 38 & 0.86\%\\
+\midrule
+\textbf{Total} & \textbf{83} & \textbf{1.88\%}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Manager Dataset}
+
+The \texttt{manager} dataset contains three attributes:
+\texttt{EmployeeID}, \texttt{JobInvolvement}, and
+\texttt{PerformanceRating}. All 4,410 records are non-null,
+indicating that no missing values were detected.
+
+\subsubsection{Attendance Datasets}
+
+The \texttt{in\_time} and \texttt{out\_time} datasets
+each contain 262 attributes and 4,410 records.
+The available inspection output does not provide the
+non-null counts for individual columns. Therefore,
+their exact numbers of missing values need to be
+calculated separately before preprocessing.
+
+\subsection{Duplicate Records}
+
+Duplicate records were checked in all five datasets.
+The results showed that no duplicate records were detected
+in any of the files.
+
+\begin{table}[H]
+\centering
+\caption{Duplicate record check}
+\label{tab:duplicates}
+\begin{tabular}{lr}
+\toprule
+\textbf{Dataset} & \textbf{Number of duplicate records}\\
+\midrule
+General & 0\\
+Employee & 0\\
+Manager & 0\\
+In-time & 0\\
+Out-time & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Initial Data Quality Assessment}
+
+Based on the initial inspection, the following observations
+were identified:
+
+\begin{itemize}
+    \item All five datasets contain 4,410 records each,
+    with a total of 555 attributes.
+
+    \item The datasets contain numerical and string data types,
+    requiring appropriate preprocessing techniques.
+
+    \item The \texttt{general} dataset contains 28 missing values,
+    while the \texttt{employee} dataset contains 83 missing values.
+
+    \item The \texttt{manager} dataset contains no missing values.
+
+    \item The exact number of missing values in the attendance
+    datasets still needs to be determined.
+
+    \item No duplicate records were detected in the five datasets.
+
+    \item \texttt{EmployeeID} links all files (primary key in
+    \texttt{general}, foreign key elsewhere), and the files can be
+    read with UTF-8 encoding.
+\end{itemize}
+
+These findings provide an overview of the data structure
+and initial data quality. The next step is to examine the
+attendance records, handle missing values, and prepare
+suitable features for clustering.
+% =====================================================================
+
+% =====================================================================
+%                 LIST OF FIGURES AND LIST OF TABLES (END)
+% =====================================================================
+
+\clearpage
+\listoffigures
+
+\listoftables
+
+\end{document}
