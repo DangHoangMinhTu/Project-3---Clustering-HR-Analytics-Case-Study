@@ -42,8 +42,6 @@
 \renewcommand{\headrulewidth}{0.4pt}
 
 % ---------- Helper macros ----------
-% Red marker for text that needs to be filled in
-\newcommand{\tbd}[1]{\textcolor{red}{[#1]}}
 
 % Include a figure if it exists, otherwise show a placeholder
 \newcommand{\safefig}[3][0.85\textwidth]{%
@@ -175,8 +173,6 @@ and compare three clustering algorithms --- K-Means, Hierarchical (Ward)
 clustering and DBSCAN --- using the Silhouette score, the Elbow method,
 Davies--Bouldin and Calinski--Harabasz indices.
 
-The best model is
-\tbd{best model, k = ?} with a Silhouette score of \tbd{value}.
 The resulting segments are profiled and cross-checked against the
 \texttt{Attrition} column (used only for external validation) to derive
 practical HR recommendations.
@@ -258,10 +254,10 @@ compared (Table~\ref{tab:dataset-overview}): every file has 4,410 rows,
 while the number of columns differs by file (24, 4, 3, 262 and 262).
 Second, the column names of \texttt{in\_time} and \texttt{out\_time},
 which have the same structure (one column per calendar day), were compared.
-They contain \tbd{the same 262 column names in the same order}, so the two
+They contain the same 262 column names in the same order, so the two
 files can be processed in parallel when computing working hours.
 No column name other than \texttt{EmployeeID} is shared between the
-other files \tbd{confirm}, so no naming conflict (e.g.\ \texttt{\_x},
+other files, so no naming conflict (e.g.\ \texttt{\_x},
 \texttt{\_y} suffixes) will appear after merging.
 
 \subsection{Relationships Between Files}
@@ -281,11 +277,11 @@ unnamed first column (\texttt{Unnamed: 0}) and is renamed to
 \textbf{File} & \textbf{Null keys} & \textbf{Duplicate keys}
 & \textbf{IDs not in General} & \textbf{General IDs missing}\\
 \midrule
-General  & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
-Employee & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
-Manager  & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
-In-time  & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
-Out-time & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
+General  & 0 & 0 & 0 & 0\\
+Employee & 0 & 0 & 0 & 0\\
+Manager  & 0 & 0 & 0 & 0\\
+In-time  & 0 & 0 & 0 & 0\\
+Out-time & 0 & 0 & 0 & 0\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -294,14 +290,14 @@ Out-time & \tbd{0} & \tbd{0} & \tbd{0} & \tbd{0}\\
 dataset (unique and non-null) and the \textbf{foreign key} in the other
 four files, so the relationship is one-to-one. A test merge of
 \texttt{general}, \texttt{employee} and \texttt{manager} on
-\texttt{EmployeeID} returned \tbd{4,410} rows, i.e.\ no record was lost
+\texttt{EmployeeID} returned 4,410 rows, i.e.\ no record was lost
 or duplicated.
 
 \subsection{File Encoding}
 
 The encoding of each CSV file was tested by decoding the raw bytes.
-\tbd{All five files were successfully decoded as UTF-8 (no BOM, no decoding
-error)}, so no special encoding argument is needed when calling
+All five files were successfully decoded as UTF-8 (no BOM, no decoding
+error), so no special encoding argument is needed when calling
 \texttt{pd.read\_csv()} and no font or character errors are expected.
 
 \subsection{Data Types}
@@ -418,23 +414,6 @@ Duplicate records were checked in all five datasets.
 The results showed that no duplicate records were detected
 in any of the files.
 
-\begin{table}[H]
-\centering
-\caption{Duplicate record check}
-\label{tab:duplicates}
-\begin{tabular}{lr}
-\toprule
-\textbf{Dataset} & \textbf{Number of duplicate records}\\
-\midrule
-General & 0\\
-Employee & 0\\
-Manager & 0\\
-In-time & 0\\
-Out-time & 0\\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \subsection{Initial Data Quality Assessment}
 
 Based on the initial inspection, the following observations
@@ -467,6 +446,247 @@ and initial data quality. The next step is to examine the
 attendance records, handle missing values, and prepare
 suitable features for clustering.
 % =====================================================================
+\section{Data Cleaning}
+
+The inspection in the previous section showed missing values in the
+\texttt{general}, \texttt{employee}, \texttt{in\_time} and
+\texttt{out\_time} files, no duplicate records, and attendance dates stored
+as strings. This section describes how each problem was handled to obtain the
+final table \texttt{df\_clean}. The pipeline is implemented in the
+accompanying notebook.
+
+% ---------------------------------------------------------------------
+\subsection{Merging the Tables}
+
+The \texttt{general}, \texttt{employee} and \texttt{manager} files were joined
+on \texttt{EmployeeID} with \texttt{validate=}\allowbreak\texttt{"one\_to\_one"}, which raises an
+error if any key is repeated. The merged table keeps all 4,410 employees and
+contains 28 columns. The two attendance files are processed separately
+(Section~\ref{sec:attendance}) and joined at the end.
+
+% ---------------------------------------------------------------------
+\subsection{Removing Duplicates}
+
+Duplicates were checked again after merging, because joins can silently
+multiply rows. Two criteria were used: fully identical rows and repeated
+\texttt{EmployeeID}. Both checks returned 0, so no record was removed and the
+table keeps 4,410 employees.
+
+% ---------------------------------------------------------------------
+\subsection{Handling Missing Values}
+
+Missing values were not treated in the same way everywhere. The decision
+depends on \emph{why} a value is missing.
+
+\begin{table}[H]
+\centering
+\caption{Missing-value handling strategy}
+\label{tab:missing-strategy}
+\small
+\begin{tabularx}{\textwidth}{l l r X}
+\toprule
+\textbf{Dataset} & \textbf{Attribute} & \textbf{Missing} & \textbf{Strategy}\\
+\midrule
+General  & NumCompaniesWorked      & 19 & Median imputation\\
+General  & TotalWorkingYears       & 9  & Median imputation\\
+Employee & EnvironmentSatisfaction & 25 & Mode imputation\\
+Employee & JobSatisfaction         & 20 & Mode imputation\\
+Employee & WorkLifeBalance         & 38 & Mode imputation\\
+Manager  & ---                     & 0  & No action\\
+In/Out-time & all date columns     & 109,080 each & Not imputed: interpreted as absence and
+                                   converted to features\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{General and Employee datasets}
+
+The General and Employee datasets contain 28 (0.63\%) and 83 (1.88\%) missing
+values, respectively. Because these counts are small, all rows were retained
+instead of being deleted, so that the other attributes of the affected
+employees are not lost. The missing values were imputed with a statistic
+chosen according to the nature of each variable.
+
+\paragraph{Count variables: median.}
+\texttt{NumCompaniesWorked} and \texttt{TotalWorkingYears} are non-negative
+counts. Figure~\ref{fig:figure1} shows that both are right-skewed (skewness
+1.12 and 1.03): most employees have low values, while a small number have very
+high ones (up to 40 years of experience and up to 9 previous companies) that
+form a long upper tail. These extreme values pull the mean above the median
+($11.28$ vs.\ $10$ years; $2.69$ vs.\ $2$ companies), so the mean no longer
+describes a typical employee, and for an integer count it also produces
+non-integer values. The median is not affected by the tail, so it was used.
+
+\begin{figure}[H]
+\centering
+\safefig{figure1.png}{Distribution of TotalWorkingYears and NumCompaniesWorked}
+\caption{Distribution of \texttt{TotalWorkingYears} and
+\texttt{NumCompaniesWorked}, with mean (dashed) and median (solid).}
+\label{fig:figure1}
+\end{figure}
+
+\paragraph{Ordinal survey scores: mode.}
+\texttt{EnvironmentSatisfaction}, \texttt{JobSatisfaction} and
+\texttt{WorkLifeBalance} are ordinal scores from 1 to 4. Figure~\ref{fig:figure2}
+shows that their means (2.72, 2.73 and 2.76) fall between two levels and do
+not correspond to any valid answer. The mode (3, 4 and 3) is the level chosen
+most often, is always a valid score, and keeps the discrete nature of the
+variable, so it was used instead of the mean.
+
+\begin{figure}[H]
+\centering
+\safefig{figure2.png}{Distribution of the three survey scores with mean and mode}
+\caption{Distribution of the three survey scores, with mean (dashed) and
+mode (solid).}
+\label{fig:figure2}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\subsection{Processing Attendance Data}
+\label{sec:attendance}
+
+Each of \texttt{in\_time} and \texttt{out\_time} has 261 date columns and
+109,080 missing cells. These are \emph{not} random gaps. A cell is empty when
+the employee did not swipe on that day, that is, on a public holiday, on leave
+or when absent. Filling them with a mean or median would invent working hours
+that never happened. The cells were therefore handled in five steps:
+
+\begin{enumerate}[label=\textbf{Step \arabic*.}, leftmargin=*]
+  \item \textbf{Convert to datetime.} All 261 date columns were parsed
+  with \texttt{pd.to\_datetime}.
+
+  \item \textbf{Remove non-working days.} Days on which no employee has a
+  swipe-in and swipe-out are public holidays or closed days and carry no
+  information. 12 such columns (the float columns in
+  Table~\ref{tab:data-types}) were dropped. They account for
+  $12 \times 4{,}410 = 52{,}920$ of the missing cells in each file, and the
+  remaining $109{,}080 - 52{,}920 = 56{,}160$ cells are individual absences.
+  The number of working days is therefore $N_{\text{work}} = 249$.
+
+  \item \textbf{Validate records.} A day is valid only if both swipe-in
+  and swipe-out exist and the duration lies in $(0, 24]$ hours. The check
+  found 0 days with only one of the two swipes and 0 days with an invalid
+  duration, so no record had to be discarded.
+
+  \item \textbf{Aggregate per employee.} The remaining missing days are
+  skipped (not filled) when computing the features below.
+
+  \item \textbf{Join.} The three features are merged into the main table
+  on \texttt{EmployeeID} (one-to-one).
+\end{enumerate}
+
+\begin{align}
+  h_{i,d} &= t^{\text{out}}_{i,d} - t^{\text{in}}_{i,d}
+  \quad\text{(hours, valid days only)},\\
+  \text{AvgWorkHours}_i &= \frac{1}{|D_i|}\sum_{d\in D_i} h_{i,d},\\
+  \text{AbsentDays}_i &= N_{\text{work}} - |D_i|,\qquad
+  \text{AbsentRate}_i = \frac{\text{AbsentDays}_i}{N_{\text{work}}},
+\end{align}
+
+where $D_i$ is the set of valid days of employee $i$. Every employee has at
+least one valid day, so no median fallback was needed for these features.
+
+\begin{table}[H]
+\centering
+\caption{Summary of the engineered attendance features}
+\label{tab:att-features}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Feature} & \textbf{Mean} & \textbf{Std} & \textbf{Min}
+& \textbf{Median} & \textbf{Max}\\
+\midrule
+AvgWorkHours & 7.70  & 1.34 & 5.95  & 7.41  & 11.03\\
+AbsentDays   & 12.74 & 5.50 & 1     & 13    & 24\\
+AbsentRate   & 0.051 & 0.022 & 0.004 & 0.052 & 0.096\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+After this step the dataset contains \textbf{no missing values}
+(Table~\ref{tab:cleaning-summary}).
+
+% ---------------------------------------------------------------------
+\subsection{Standardizing Data Types}
+
+\begin{table}[H]
+\centering
+\caption{Data type conversions}
+\label{tab:dtype-conversion}
+\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X l l >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Attributes} & \textbf{Before} & \textbf{After} & \textbf{Reason}\\
+\midrule
+261 date columns of in/out-time & string & datetime & Needed to compute working hours\\
+Survey scores, \texttt{NumCompaniesWorked}, \texttt{TotalWorkingYears}
+  & float64 & int64 & Imputed values are whole numbers\\
+\texttt{BusinessTravel}, \texttt{Department}, \texttt{EducationField},
+  \texttt{Gender}, \texttt{JobRole}, \texttt{MaritalStatus}
+  & string & category & Memory and correct encoding\\
+\texttt{Attrition} & string (Yes/No) & int64 (1/0) & External validation only\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Three constant attributes (\texttt{EmployeeCount}, \texttt{Over18},
+\texttt{StandardHours}) have a single value for all employees. They cannot
+separate clusters and were dropped.
+
+A logical consistency check compared \texttt{YearsAtCompany} with
+\texttt{TotalWorkingYears}. Two employees (0.05\%) have more years at the
+company than total working years. This is negligible and these records were
+kept unchanged.
+
+% ---------------------------------------------------------------------
+\subsection{Summary of Data Cleaning}
+
+\begin{table}[H]
+\centering
+\caption{Dataset before and after cleaning}
+\label{tab:cleaning-summary}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Criteria} & \textbf{Before} & \textbf{After}\\
+\midrule
+Employees (rows)                      & 4,410 & 4,410\\
+Missing values (general + survey)     & 111   & 0\\
+Missing values (attendance, per file) & 109,080 & 0 (converted to features)\\
+Duplicate records                     & 0     & 0\\
+Constant attributes                   & 3     & 0\\
+Attributes (final table)              & 555 (5 files) & 29\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The 29 attributes of \texttt{df\_clean} are: 21 attributes of
+\texttt{general} (24 minus 3 constant ones), 3 survey scores from
+\texttt{employee}, 2 ratings (\texttt{JobInvolvement},
+\texttt{PerformanceRating}) from \texttt{manager}, and 3 attendance
+features. The cleaned table has one row per employee and is ready for
+exploratory data analysis and feature selection.
+
+\begin{lstlisting}[caption={Core of the attendance cleaning step}]
+in_dt  = in_df.apply(pd.to_datetime, errors="coerce")
+out_dt = out_df.apply(pd.to_datetime, errors="coerce")
+
+# drop public holidays: days with no swipe for every employee
+holiday = in_dt.columns[in_dt.isna().all() & out_dt.isna().all()]
+in_dt, out_dt = in_dt.drop(columns=holiday), out_dt.drop(columns=holiday)
+
+# keep only days with both in and out
+half = in_dt.isna() ^ out_dt.isna()
+in_dt, out_dt = in_dt.mask(half), out_dt.mask(half)
+
+hours = (out_dt - in_dt).apply(lambda s: s.dt.total_seconds() / 3600)
+hours = hours.mask((hours <= 0) | (hours > 24))
+
+att = pd.DataFrame({
+    "AvgWorkHours": hours.mean(axis=1),          # NaN days skipped
+    "AbsentDays":   hours.isna().sum(axis=1),
+})
+att["AbsentRate"] = att["AbsentDays"] / hours.shape[1]
+\end{lstlisting}
 
 % =====================================================================
 %                 LIST OF FIGURES AND LIST OF TABLES (END)
