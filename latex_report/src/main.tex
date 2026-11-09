@@ -402,11 +402,13 @@ indicating that no missing values were detected.
 \subsubsection{Attendance Datasets}
 
 The \texttt{in\_time} and \texttt{out\_time} datasets
-each contain 262 attributes and 4,410 records.
-The available inspection output does not provide the
-non-null counts for individual columns. Therefore,
-their exact numbers of missing values need to be
-calculated separately before preprocessing.
+each contain 262 attributes and 4,410 records. Each file has
+109,080 missing cells (9.5\% of the $4{,}410 \times 261$ date cells), and
+the two files have their missing cells in exactly the same positions.
+These cells are not random gaps: a cell is empty when the employee did
+not swipe on that day (public holiday, leave or absence). They are
+therefore not imputed but converted into attendance features during
+cleaning (Section~\ref{sec:attendance}).
 
 \subsection{Duplicate Records}
 
@@ -431,8 +433,8 @@ were identified:
 
     \item The \texttt{manager} dataset contains no missing values.
 
-    \item The exact number of missing values in the attendance
-    datasets still needs to be determined.
+    \item The attendance datasets contain 109,080 missing cells each,
+    which represent days without a swipe rather than data errors.
 
     \item No duplicate records were detected in the five datasets.
 
@@ -521,7 +523,8 @@ non-integer values. The median is not affected by the tail, so it was used.
 \centering
 \safefig{figure1.png}{Distribution of TotalWorkingYears and NumCompaniesWorked}
 \caption{Distribution of \texttt{TotalWorkingYears} and
-\texttt{NumCompaniesWorked}, with mean (dashed) and median (solid).}
+\texttt{NumCompaniesWorked} (box: interquartile range, orange line: median,
+circles: outliers beyond $1.5\times$IQR).}
 \label{fig:figure1}
 \end{figure}
 
@@ -635,8 +638,10 @@ separate clusters and were dropped.
 
 A logical consistency check compared \texttt{YearsAtCompany} with
 \texttt{TotalWorkingYears}. Two employees (0.05\%) have more years at the
-company than total working years. This is negligible and these records were
-kept unchanged.
+company than total working years (IDs 24 and 4410). Both had a missing
+\texttt{TotalWorkingYears} that was filled with the median (10 years), so the
+conflict comes from the imputation, not from the raw data. The effect is
+negligible and these records were kept unchanged.
 
 % ---------------------------------------------------------------------
 \subsection{Summary of Data Cleaning}
@@ -1317,7 +1322,8 @@ separate islands, as expected from the low silhouette.
   commute), not as natural, isolated groups.
   \item The indices alone cannot prove that $k=5$ is the true number of groups;
   the segments must be judged by their meaning and by external validation,
-  which is done in the next section by profiling them and comparing their
+  which is done in Sections~\ref{sec:evaluation} and~\ref{sec:profiling} by
+evaluating, profiling and comparing their
   attrition rates.
   \item DBSCAN highlights 105 high-level, long-hour employees with poor work-life
   balance and a 36.2\% attrition rate.
