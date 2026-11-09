@@ -936,23 +936,26 @@ $\log(1+x)$ transformation.}
 mean 0 and variance 1. Without scaling, \texttt{MonthlyIncome}
 (standard deviation 47,069) is thousands of times larger than the other
 variables (for example 8.11 for \texttt{DistanceFromHome}) and decides almost
-all of the distance. Table~\ref{tab:silhouette} confirms the effect: the
-unscaled data gives a silhouette score of 0.708 for $k=2$, but this is an
-artefact of one dominant variable, not a real group structure.
+all of the distance. Table~\ref{tab:silhouette} confirms the effect. All
+partitions are scored in the same scaled space: K-Means fitted on the unscaled
+data reaches at most 0.066, because it only cuts \texttt{MonthlyIncome} into
+bands. (Measured in its own raw space the same partition reaches 0.708 for
+$k=2$, but that value only reflects the dominance of income and is not
+comparable.) Adding one-hot nominal variables does not change the result.
 
 \begin{table}[H]
 \centering
 \caption{K-Means silhouette score by number of clusters $k$ for three
-preprocessing choices}
+preprocessing choices (all scored in the scaled 13-feature space)}
 \label{tab:silhouette}
 \small
 \begin{tabular}{lrrrrr}
 \toprule
 \textbf{Input} & $k=2$ & $k=3$ & $k=4$ & $k=5$ & $k=6$\\
 \midrule
-Raw features (no scaling)       & 0.708 & 0.624 & 0.610 & 0.617 & 0.618\\
+Raw features (no scaling)       & 0.066 & 0.026 & 0.014 & 0.010 & 0.003\\
 Log + StandardScaler (13 features) & 0.103 & 0.082 & 0.078 & 0.082 & 0.080\\
-Scaled + one-hot nominal (36 columns) & 0.083 & 0.064 & 0.061 & 0.064 & 0.062\\
+Scaled + one-hot nominal (36 columns) & 0.103 & 0.081 & 0.078 & 0.082 & 0.080\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1321,255 +1324,319 @@ separate islands, as expected from the low silhouette.
 \end{itemize}
 
 % =====================================================================
-\section{Clustering Models}
+\section{Model Evaluation}
+\label{sec:evaluation}
 
-Three algorithms were trained on the matrix \texttt{X} of 4,410 employees
-$\times$ 13 scaled features (Section~\ref{sec:prep}): K-Means,
-Hierarchical clustering with Ward linkage, and DBSCAN. All results use the same
-input and \texttt{random\_state=42}.
+The previous section selected K-Means with $k=5$ using internal indices. This
+section checks whether that choice holds up from four further angles:
+(i) comparison with baselines, (ii) stability, (iii) sensitivity to the
+feature groups, and (iv) external validation against \texttt{Attrition}
+(Section~\ref{sec:profiling}).
 
 % ---------------------------------------------------------------------
-\subsection{Evaluation Criteria}
+\subsection{Comparison with Baselines}
 
-Because no label exists, the clusterings are judged with internal indices.
-For employee $i$, let $a(i)$ be the mean distance to the other members of its
-cluster and $b(i)$ the mean distance to the nearest other cluster.
-
-\begin{align}
-  s(i) &= \frac{b(i) - a(i)}{\max\{a(i), b(i)\}}, \qquad
-  \text{Silhouette} = \frac{1}{n}\sum_{i=1}^{n} s(i) \in [-1, 1],\\
-  \text{WCSS} &= \sum_{j=1}^{k}\sum_{x \in C_j}\lVert x - \mu_j \rVert^2
-  \quad\text{(inertia)}.
-\end{align}
-
+Two baselines were built. A model that cannot beat them has found nothing
+useful:
 \begin{itemize}
-  \item \textbf{Silhouette} (higher is better): cohesion against separation.
-  \item \textbf{Davies--Bouldin} (lower is better): average similarity between
-  each cluster and its most similar cluster.
-  \item \textbf{Calinski--Harabasz} (higher is better): ratio of between-cluster
-  to within-cluster dispersion. It tends to fall as $k$ grows, so it is read
-  together with the other indices.
-  \item \textbf{Elbow (WCSS)}: the $k$ after which the decrease of inertia
-  slows down.
-  \item \textbf{Stability}: mean Adjusted Rand Index (ARI) between K-Means
-  models fitted on 10 random 80\% subsamples, each labelling all employees. A
-  value near 1 means the same partition is found again.
+  \item \textbf{Random labels}: every employee is assigned to one of five
+  groups at random (mean over 20 draws).
+  \item \textbf{Unscaled K-Means}: K-Means ($k=5$) fitted on the raw features,
+  without log transform or scaling.
 \end{itemize}
-
-% ---------------------------------------------------------------------
-\subsection{K-Means}
-
-K-Means was run for $k = 2,\dots,10$ with 20 random initialisations per $k$.
-Table~\ref{tab:km} and Figure~\ref{fig:km-selection} show the indices.
+All partitions are scored in the same scaled 13-feature space, so the values
+are directly comparable.
 
 \begin{table}[H]
 \centering
-\caption{K-Means model selection}
-\label{tab:km}
+\caption{Internal validity of the models against the baselines ($k=5$)}
+\label{tab:baselines}
 \small
-\begin{tabular}{rrrrrrr}
+\begin{tabular}{lrrrr}
 \toprule
-$k$ & \textbf{Inertia} & \textbf{Drop (\%)} & \textbf{Silhouette}
-& \textbf{Davies--B.} & \textbf{Calinski--H.} & \textbf{Stability}\\
+\textbf{Model} & \textbf{Clusters} & \textbf{Silhouette $\uparrow$}
+& \textbf{Davies--B. $\downarrow$} & \textbf{Calinski--H. $\uparrow$}\\
 \midrule
-2  & 51,465 & --  & \textbf{0.103} & 2.716 & \textbf{502.3} & \textbf{0.947}\\
-3  & 48,751 & 5.3 & 0.081 & 3.046 & 387.8 & 0.851\\
-4  & 46,659 & 4.3 & 0.078 & 2.848 & 335.9 & 0.623\\
-5  & 44,709 & 4.2 & 0.082 & 2.666 & 310.9 & 0.816\\
-6  & 43,145 & 3.5 & 0.080 & 2.570 & 289.6 & 0.704\\
-7  & 41,837 & 3.0 & 0.075 & 2.458 & 271.8 & 0.787\\
-8  & 40,806 & 2.5 & 0.078 & 2.338 & 254.6 & 0.683\\
-9  & 39,982 & 2.0 & 0.074 & \textbf{2.251} & 238.7 & 0.602\\
-10 & 39,298 & 1.7 & 0.066 & 2.413 & 224.3 & 0.562\\
+Baseline: random labels      & 5 & $-0.007$ & 52.40 & 1.0\\
+Baseline: K-Means, unscaled  & 5 & 0.010    & 9.61  & 86.7\\
+\midrule
+\textbf{K-Means}             & 5 & \textbf{0.082} & \textbf{2.67} & \textbf{310.9}\\
+Ward                         & 5 & 0.047    & 3.24  & 218.6\\
+DBSCAN ($\varepsilon = 3.0$) & 1 & --       & --    & --\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item K-Means and Ward both clearly beat the \textbf{random baseline}
+  (silhouette $\approx 0$, Calinski--Harabasz $\approx 1$). The partitions
+  capture real, if weak, structure.
+  \item The \textbf{unscaled} K-Means only cuts \texttt{MonthlyIncome} into
+  bands: its between-cluster spread is 1.31 standard deviations for income and
+  at most 0.10 for any other feature. In the scaled space this partition is
+  barely better than random (silhouette 0.010). Scaling is therefore
+  essential, and the high silhouette of the raw data in
+  Section~\ref{sec:prep} is an artefact of measuring it in an
+  income-dominated space.
+  \item \textbf{K-Means is better than Ward on all three indices}. DBSCAN
+  returns one cluster and cannot be scored.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\subsection{Stability}
+
+\begin{table}[H]
+\centering
+\caption{Stability of K-Means with $k=5$ (Adjusted Rand Index)}
+\label{tab:stability}
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Test} & \textbf{Mean ARI} & \textbf{Min ARI}\\
+\midrule
+20 bootstrap samples vs.\ final model (\texttt{n\_init=10}) & 0.801 & 0.496\\
+20 random seeds, single initialisation (\texttt{n\_init=1}) & 0.525 & 0.287\\
+10 subsamples of 80\%, pairwise (Table~\ref{tab:km})         & 0.816 & --\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With a single initialisation, K-Means often stops in a different local
+optimum (mean ARI 0.53), so many initialisations are needed; the final model
+uses 20. With 10 initialisations the partition is reproduced reasonably on
+bootstrap samples (mean ARI 0.80, consistent with the 0.82 obtained on
+subsamples), but the worst resample only reaches 0.50. The main segments are
+stable; the borders between neighbouring clusters are soft, so individual
+assignments near a border should not be over-interpreted.
+
+% ---------------------------------------------------------------------
+\subsection{Sensitivity to the Feature Groups}
+
+Each of the four feature groups (Table~\ref{tab:features}) was removed in turn
+and K-Means ($k=5$) was refitted. A high ARI with the final model means the
+group hardly influences the segmentation; a low ARI means the group drives it.
+
+\begin{table}[H]
+\centering
+\caption{K-Means ($k=5$) after removing one feature group}
+\label{tab:ablation}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Removed group} & \textbf{Features left} & \textbf{Silhouette}
+& \textbf{ARI vs.\ final model}\\
+\midrule
+Seniority \& pay           & 8  & 0.121 & 0.267\\
+Workload \& attendance     & 11 & 0.097 & 0.519\\
+Satisfaction \& engagement & 9  & 0.125 & \textbf{0.895}\\
+Commute \& travel          & 11 & 0.094 & 0.507\\
+\midrule
+None (final model)         & 13 & 0.082 & 1.000\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Removing \emph{seniority \& pay}, \emph{workload} or \emph{commute} changes
+the partition substantially (ARI 0.27--0.52): these three groups
+\textbf{drive} the segmentation. Removing the four \emph{satisfaction} scores
+leaves the partition almost unchanged (ARI 0.90) and raises the silhouette.
+The survey scores add noise rather than structure, which matches the EDA
+(they are uncorrelated with every other variable). They are kept in the model
+because the project aims to describe satisfaction, but no segment should be
+expected to be defined by satisfaction alone.
+
+% =====================================================================
+\section{Cluster Profiling and External Validation}
+\label{sec:profiling}
+
+% ---------------------------------------------------------------------
+\subsection{Cluster Profiles}
+
+Table~\ref{tab:profile} gives the mean of the main variables in each K-Means
+cluster, and Figure~\ref{fig:profile-heatmap} the standardised means of all
+features. \texttt{Age} and \texttt{NumCompaniesWorked} were not used for
+clustering and serve as an additional check. The names were assigned with
+explicit rules (fewest working years $\rightarrow$ Newcomers; then longest
+time since promotion, longest working hours, longest commute; the remaining
+cluster is the Steady core).
+
+\begin{table}[H]
+\centering
+\caption{Profile of the five K-Means segments (means)}
+\label{tab:profile}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrr}
+\toprule
+& \textbf{Newcomers} & \textbf{Overtime} & \textbf{Long} & \textbf{Stagnant}
+& \textbf{Steady}\\
+& & \textbf{workers} & \textbf{commuters} & \textbf{veterans} & \textbf{core}\\
+\midrule
+Employees            & 556   & 740   & 696   & 949   & 1{,}469\\
+Share of workforce   & 12.6\% & 16.8\% & 15.8\% & 21.5\% & 33.3\%\\
+\midrule
+TotalWorkingYears    & 2.5   & 11.3  & 9.8   & 17.9  & 11.0\\
+YearsAtCompany       & 1.3   & 6.1   & 5.6   & 14.4  & 5.6\\
+YearsSinceLastPromotion & 0.4 & 1.4  & 1.1   & 7.0   & 0.7\\
+AvgWorkHours         & 7.67  & \textbf{9.74} & 7.35 & 7.42 & 7.03\\
+AbsentRate (\%)      & 4.9   & 3.7   & 5.3   & 5.2   & 5.8\\
+DistanceFromHome (km) & 6.3  & 7.9   & \textbf{22.9} & 8.2 & 5.1\\
+MonthlyIncome        & 67{,}016 & 59{,}727 & 61{,}692 & 71{,}797 & 64{,}158\\
+EnvironmentSatisfaction & 2.95 & 2.92 & 2.72 & 2.69 & 2.57\\
+JobSatisfaction      & 2.74  & 2.90  & 2.68  & 2.71  & 2.69\\
+WorkLifeBalance      & 2.80  & 2.63  & 2.80  & 2.83  & 2.76\\
+Age$^{*}$            & 29.5  & 37.8  & 36.3  & 41.0  & 37.0\\
+\midrule
+\textbf{Attrition rate}$^{*}$ & \textbf{37.1\%} & \textbf{23.4\%} & 13.1\% & 12.0\% & 8.6\%\\
+\bottomrule
+\end{tabular}
+
+\footnotesize $^{*}$ not used for clustering.
+\end{table}
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{eval_profile_heatmap.png}{Cluster profile heatmap}
+\caption{Standardised cluster means (z-score against the company mean). Left
+of the vertical line: clustering features; right: variables not used for
+clustering.}
+\label{fig:profile-heatmap}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Newcomers (12.6\%)}: about 2.5 years of total experience and
+  1.3 years at the company, 29 years old, 46\% single (company: 32\%).
+  \item \textbf{Overtime workers (16.8\%)}: 9.7 working hours per day
+  (z = +1.52) and the fewest absences. Their job and environment satisfaction
+  is not lower than average; only work-life balance is slightly lower
+  (z = $-0.20$).
+  \item \textbf{Long commuters (15.8\%)}: about 23 km from home (z = +1.69),
+  otherwise close to the company average.
+  \item \textbf{Stagnant veterans (21.5\%)}: 14 years at the company and
+  \emph{seven years since the last promotion} (z = +1.48), the highest income.
+  \item \textbf{Steady core (33.3\%)}: the shortest working days (7.0 hours),
+  closest to the office (5.1 km), recently promoted.
+\end{itemize}
+Department and marital-status mixes are almost identical across segments,
+except the high share of single employees among the newcomers.
+
+% ---------------------------------------------------------------------
+\subsection{External Validation with Attrition}
+
+\texttt{Attrition} was never given to the algorithms. If the segments differ
+clearly in attrition, this is independent evidence that they are meaningful.
+The association was measured with a chi-square test of independence and
+Cramér's $V = \sqrt{\chi^2 / (n(\min(r,c)-1))}$.
+
+\begin{table}[H]
+\centering
+\caption{Association between cluster labels and \texttt{Attrition}}
+\label{tab:chi2}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Partition} & $\boldsymbol{\chi^2}$ & \textbf{p-value} & \textbf{Cramér's V}\\
+\midrule
+\textbf{K-Means ($k=5$)}     & \textbf{286.2} & $1.0\times10^{-60}$ & \textbf{0.255}\\
+Ward ($k=5$)                 & 107.0 & $3.2\times10^{-22}$ & 0.156\\
+DBSCAN anomaly vs.\ rest     & 30.5  & $3.3\times10^{-8}$  & 0.083\\
+Random labels                & 1.0   & 0.91                & 0.015\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]
 \centering
-\safefig[\textwidth]{km_selection.png}{Elbow, silhouette and stability by k}
-\caption{Elbow curve, silhouette score and stability of K-Means for
-$k=2,\dots,10$. The dashed line marks the chosen $k=5$.}
-\label{fig:km-selection}
-\end{figure}
-
-\paragraph{Reading the indices.}
-\begin{itemize}
-  \item \textbf{Elbow.} The inertia falls smoothly (the drop shrinks from 5.3\%
-  to 1.7\% per extra cluster) and there is no sharp bend. The elbow method alone
-  therefore does not give a clear $k$, which is typical of data without
-  well-separated groups.
-  \item \textbf{Silhouette.} The global maximum is at $k=2$ (0.103), followed
-  by a plateau of 0.075--0.082 for $k=3,\dots,8$ with a local peak at $k=5$
-  (0.082).
-  \item \textbf{$k=2$ is too coarse.} The two clusters differ almost only in
-  tenure (mean z-scores of \texttt{YearsSinceLastPromotion}, \texttt{YearsAtCompany}
-  and \texttt{TotalWorkingYears} are $-0.53/{+}1.09$, $-0.48/{+}0.98$ and
-  $-0.36/{+}0.74$ in the two clusters, while all other features stay within
-  $\pm 0.1$). This corresponds to the first principal component
-  found in the PCA and cannot represent the workload, commute and satisfaction
-  profiles targeted by the project.
-  \item \textbf{Choice.} Restricting the search to $k \ge 3$,
-  $\mathbf{k = 5}$ has the highest silhouette (0.0819 against 0.0814 for
-  $k=3$), the lowest Davies--Bouldin value among $k=3,4,5$ (2.666), and a
-  high stability (ARI 0.82). $k=4$ and $k=6$ are clearly less stable (0.62 and
-  0.70). The margin between $k=3$ and $k=5$ is small; $k=5$ was kept because it
-  gives finer segments, and $k=3$ remains a valid coarser alternative
-  (stability 0.85).
-\end{itemize}
-
-\paragraph{Silhouette plot.}
-Figure~\ref{fig:km-silhouette} shows the silhouette of every employee for
-$k=5$. The five clusters have sizes 949, 556, 1,469, 740 and 696. The mean
-silhouette is 0.082 and only 3.2\% of employees have a negative value, so few
-employees are clearly assigned to the wrong cluster; but most values are small
-(below 0.2), meaning that the clusters touch each other rather than being
-isolated.
-
-\begin{figure}[H]
-\centering
-\safefig[0.6\textwidth]{km_silhouette_plot.png}{Silhouette plot for k = 5}
-\caption{Silhouette plot of K-Means with $k=5$.}
-\label{fig:km-silhouette}
-\end{figure}
-
-\paragraph{Clusters on the PCA and t-SNE maps.}
-Figure~\ref{fig:clusters-2d} shows the five K-Means clusters on the 2D maps of
-the previous section. The clusters are neighbouring regions of one continuous
-cloud, not separate islands, as expected from the low silhouette.
-
-\begin{figure}[H]
-\centering
-\safefig[\textwidth]{clusters_2d.png}{K-Means clusters on PCA and t-SNE}
-\caption{K-Means clusters ($k=5$) on the PCA (left) and t-SNE (right) maps.}
-\label{fig:clusters-2d}
-\end{figure}
-
-% ---------------------------------------------------------------------
-\subsection{Hierarchical Clustering (Ward)}
-
-Agglomerative clustering with Ward linkage (minimum increase of within-cluster
-variance, Euclidean distance) was applied to the same matrix.
-Figure~\ref{fig:dendrogram} shows the dendrogram of the last 30 merges and the
-merge distance as a function of the number of clusters.
-
-\begin{figure}[H]
-\centering
-\safefig[\textwidth]{dendrogram_ward.png}{Ward dendrogram and merge distances}
-\caption{Ward dendrogram (left) and merge distance by number of clusters
-(right). The dashed line is the cut for $k=5$.}
-\label{fig:dendrogram}
-\end{figure}
-
-The merge distance decreases gradually: 88.0 for $k=2$, 67.1 for $k=3$, 60.1
-for $k=4$, 56.0 for $k=5$ and 51.2 for $k=6$. There is no large jump that
-would indicate a natural cut, so the dendrogram confirms that the data has a
-continuous rather than a clearly layered structure. Cutting at five clusters
-(the choice made for K-Means) gives sizes 989, 451, 434, 1,576 and 960.
-
-\begin{table}[H]
-\centering
-\caption{Ward model selection}
-\label{tab:ward}
-\small
-\begin{tabular}{rrrr}
-\toprule
-$k$ & \textbf{Silhouette} & \textbf{Davies--B.} & \textbf{Calinski--H.}\\
-\midrule
-2  & 0.073 & 2.976 & 319.3\\
-3  & 0.062 & 3.378 & 263.5\\
-4  & 0.045 & 3.543 & 235.8\\
-5  & 0.047 & 3.240 & 218.6\\
-6  & 0.048 & 3.060 & 204.6\\
-7  & 0.047 & 2.976 & 192.6\\
-8  & 0.044 & 2.989 & 184.6\\
-9  & 0.043 & 2.861 & 177.7\\
-10 & 0.038 & 2.711 & 169.5\\
-\bottomrule
-\end{tabular}
-\end{table}
-
-% ---------------------------------------------------------------------
-\subsection{DBSCAN}
-
-DBSCAN finds dense regions and labels the remaining points as noise. It was used
-mainly to detect employees with unusual behaviour. With 13 features,
-\texttt{min\_samples} was set to $2 \times 13 = 26$.
-Figure~\ref{fig:kdist} shows the sorted distance of each employee to its
-26-th nearest neighbour, which guides the choice of \texttt{eps}.
-
-\begin{figure}[H]
-\centering
-\safefig[0.6\textwidth]{dbscan_kdist.png}{k-distance plot}
-\caption{k-distance plot ($k=26$). The dashed line marks $\varepsilon=3.0$.}
-\label{fig:kdist}
+\safefig[0.75\textwidth]{eval_attrition.png}{Attrition rate by segment}
+\caption{Attrition rate per K-Means segment. Dashed line: company average
+(16.1\%).}
+\label{fig:eval-attrition}
 \end{figure}
 
 \begin{table}[H]
 \centering
-\caption{DBSCAN sensitivity to $\varepsilon$ (\texttt{min\_samples}~=~26)}
-\label{tab:dbscan}
+\caption{Concentration of leavers per segment}
+\label{tab:lift}
 \small
-\begin{tabular}{rrrr}
+\begin{tabular}{lrrrrr}
 \toprule
-$\varepsilon$ & \textbf{Clusters} & \textbf{Noise points} & \textbf{Noise (\%)}\\
+\textbf{Segment} & \textbf{Leavers} & \textbf{Attrition}
+& \textbf{Share of workforce} & \textbf{Share of leavers} & \textbf{Lift}\\
 \midrule
-2.6 & 1 & 927 & 21.0\\
-2.8 & 1 & 348 & 7.9\\
-\textbf{3.0} & \textbf{1} & \textbf{105} & \textbf{2.4}\\
-3.2 & 1 & 33  & 0.7\\
-3.4 & 1 & 4   & 0.1\\
+Newcomers         & 206 & 37.1\% & 12.6\% & 29.0\% & \textbf{2.30}\\
+Overtime workers  & 173 & 23.4\% & 16.8\% & 24.3\% & \textbf{1.45}\\
+Long commuters    & 91  & 13.1\% & 15.8\% & 12.8\% & 0.81\\
+Stagnant veterans & 114 & 12.0\% & 21.5\% & 16.0\% & 0.75\\
+Steady core       & 127 & 8.6\%  & 33.3\% & 17.9\% & 0.54\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-For every tested $\varepsilon$ DBSCAN returns \textbf{one single cluster}
-plus noise (Table~\ref{tab:dbscan}). The employees therefore form one connected
-dense region and no density-separated groups exist, which agrees with the
-dendrogram and the 2D projections. Because of this, DBSCAN cannot be used to
-segment the workforce and silhouette-type indices are not defined for it.
-It is used as an anomaly detector: $\varepsilon=3.0$ marks 105 employees
-(2.4\%) as noise, a share small enough to be reviewed individually.
-
-\begin{figure}[H]
-\centering
-\safefig[\textwidth]{dbscan_anomalies.png}{DBSCAN anomalies}
-\caption{The 105 DBSCAN anomalies on the t-SNE map (left) and their mean
-z-score per feature (right).}
-\label{fig:anomalies}
-\end{figure}
-
-Figure~\ref{fig:anomalies} shows what these employees have in common: they are
-high-level, long-hour employees with poor work-life balance. Compared with the
-average employee they have a higher \texttt{JobLevel} ($+0.94$), higher
-\texttt{AvgWorkHours} ($+0.87$), higher \texttt{MonthlyIncome} ($+0.69$) and
-longer commute ($+0.65$), and a much lower \texttt{WorkLifeBalance} ($-0.87$),
-shorter tenure and lower \texttt{JobInvolvement} ($-0.48$). As an external
-check, their attrition rate is \textbf{36.2\%}, against 15.6\% for the other
-employees, so the anomalies flag a group at real risk of leaving even though
-\texttt{Attrition} was never used by the algorithm.
-
-% ---------------------------------------------------------------------
-\subsection{Summary of Model Training}
-
 \begin{itemize}
-  \item \textbf{K-Means} was trained for $k=2,\dots,10$; $k=5$ was chosen
-  (silhouette 0.082, Davies--Bouldin 2.666, stability ARI 0.82), with $k=3$ as a
-  close and slightly more stable alternative. The five clusters have sizes 949,
-  556, 1,469, 740 and 696.
-  \item \textbf{Ward} clustering shows no natural cut in the dendrogram; the
-  tree was cut at five clusters (sizes 989, 451, 434, 1,576 and 960).
-  \item \textbf{DBSCAN} finds a single dense cluster for every tested
-  $\varepsilon$ and was used as an anomaly detector: 105 employees (2.4\%) at
-  $\varepsilon=3.0$, mostly high-level, long-hour employees with poor
-  work-life balance and a 36.2\% attrition rate.
-  \item All indices are low in absolute terms (silhouette below 0.11 for every
-  $k$). The data has weak group structure: the features are almost uncorrelated
-  and the points form one continuous cloud. The clusters are therefore read as
-  \emph{soft segments} along the main dimensions (tenure, workload, commute),
-  not as isolated natural groups, and their meaning is examined in the next
-  section.
+  \item The K-Means segments are strongly associated with attrition
+  ($p \approx 10^{-60}$, Cramér's $V = 0.26$), while random labels show no
+  association ($p = 0.91$). K-Means also separates attrition better than Ward
+  ($V = 0.16$), which agrees with the internal indices.
+  \item \textbf{Newcomers} and \textbf{overtime workers} make up 29\% of the
+  workforce but 53\% of all leavers. Their attrition rates are 2.3 and 1.45
+  times the company average.
+  \item The overtime group is a burnout signal that a satisfaction survey
+  would miss: these employees do not report lower job satisfaction.
+  \item The steady core is the most stable segment (8.6\%).
 \end{itemize}
+
+% =====================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+\paragraph{Summary.} Five relational files describing 4{,}410 employees were
+merged and cleaned, and the attendance logs were converted into working-hour
+and absence features. Thirteen features covering seniority and pay, workload,
+satisfaction and commute were log-transformed where skewed, standardised and
+clustered with K-Means, Ward hierarchical clustering and DBSCAN.
+
+\paragraph{Best model.} \textbf{K-Means with $k=5$} is the best model. It is
+better than Ward on all internal indices, clearly beats the random and
+unscaled baselines, is reasonably stable under bootstrap resampling (ARI 0.80)
+and separates attrition better than Ward. DBSCAN finds no segmentation in this
+continuous data but is useful as an anomaly detector: 2.4\% of employees,
+mostly high-level staff with long working hours and poor work-life balance,
+with 36\% attrition.
+
+\paragraph{Practical implications.}
+\begin{itemize}
+  \item \emph{Newcomers} are the main retention risk: strengthen onboarding,
+  mentoring and a clear first-promotion path during the first two years.
+  \item \emph{Overtime workers} leave 1.45 times more often than average:
+  monitor working hours, rebalance workload and limit sustained overtime,
+  since satisfaction surveys alone do not reveal this group.
+  \item \emph{Stagnant veterans} have waited about seven years for promotion;
+  recognition, expert career tracks or job rotation can keep them engaged.
+  \item \emph{Long commuters} are not a high-risk group today, but flexible or
+  remote work could protect them.
+  \item The \emph{steady core} is stable and can provide mentors for
+  newcomers.
+\end{itemize}
+
+\paragraph{Limitations.}
+\begin{itemize}
+  \item The cluster structure is weak (silhouette 0.08): the segments are soft
+  regions of one continuous cloud, and employees near a border could belong to
+  a neighbouring segment.
+  \item The satisfaction scores add no structure (removing them barely changes
+  the partition), so the segmentation cannot identify satisfaction-based
+  groups.
+  \item The dataset is semi-synthetic (many replicated records; several
+  attributes behave like independent random values), attendance covers only
+  2015, and K-Means assumes roughly spherical clusters of similar size.
+\end{itemize}
+
+\paragraph{Future work.} Gaussian Mixture Models (soft membership) or
+K-Prototypes (numeric and categorical features together) could be tested; the
+segments should be validated on real HR data; and they can be combined with a
+supervised attrition model to target retention actions at individual
+employees.
+
 % =====================================================================
 %                 LIST OF FIGURES AND LIST OF TABLES (END)
 % =====================================================================
