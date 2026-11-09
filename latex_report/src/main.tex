@@ -27,6 +27,7 @@
 \usepackage{fancyhdr}
 \usepackage{setspace}
 \usepackage[hidelinks]{hyperref}
+\makeatletter\g@addto@macro\UrlBreaks{\do\-}\makeatother % allow URL/file-name breaks at hyphens
 
 % ---------- Document formatting ----------
 \setstretch{1.15}
@@ -192,15 +193,83 @@ practical HR recommendations.
 
 \pagenumbering{arabic}
 
-% Add your report chapters below this line.
+% =====================================================================
+\section{Introduction}
+\label{sec:intro}
 
-% Example:
-% \section{Introduction}
-% Your content here.
+\subsection{Problem Definition}
+
+Employee turnover is costly: every employee who leaves has to be replaced,
+recruited and trained again, and experience is lost with them. Human
+Resources (HR) departments therefore want to know \emph{which kinds of
+employees} exist in the organisation and which of them need attention. The
+company in this case study has no such grouping; it only has raw records
+about each employee.
+
+This project uses \textbf{unsupervised learning (clustering)} to discover
+naturally occurring groups of employees with similar career, workload,
+satisfaction and commute characteristics. No label is given to the
+algorithms: the goal is not to predict a known outcome, but to find structure
+that HR can act on. The recorded \texttt{Attrition} (whether the employee left
+the company) is deliberately \emph{not} used for clustering; it is kept aside
+to check afterwards whether the discovered groups are meaningful.
+
+\paragraph{Research questions.}
+\begin{enumerate}
+  \item Which employee characteristics carry enough structure to separate
+  groups of employees?
+  \item Which clustering algorithm (K-Means, Hierarchical clustering, DBSCAN)
+  and how many clusters give the best and most reliable segmentation?
+  \item How can the segments be described, and do they differ in attrition?
+  \item What practical actions can HR derive from the segments?
+\end{enumerate}
+
+\subsection{Dataset}
+
+The \emph{HR Analytics Case Study} dataset from Kaggle describes 4,410
+employees of one company in five files: general information (demographics,
+job, pay and career history), an employee satisfaction survey, a manager
+rating, and swipe-in and swipe-out times for every working day of 2015.
+Section~\ref{sec:inspection} describes the files in detail.
+
+\subsection{Methodology}
+
+The analysis follows the steps recommended for the project:
+\begin{enumerate}
+  \item \textbf{Data inspection} -- consistency, keys, encoding, data types,
+  missing values and duplicates of the five files
+  (Section~\ref{sec:inspection}).
+  \item \textbf{Loading, integration and cleaning} -- merging on
+  \texttt{EmployeeID}, imputation, type conversion and conversion of the
+  attendance logs into working-hour and absence features
+  (Section~\ref{sec:cleaning}).
+  \item \textbf{Exploratory data analysis and feature selection} --
+  distributions, outliers, correlations, hypothesis tests, and preparation of
+  13 features (Section~\ref{sec:eda-fs}).
+  \item \textbf{Clustering} -- K-Means, Ward hierarchical clustering and
+  DBSCAN (Section~\ref{sec:models}).
+  \item \textbf{Evaluation} -- Elbow method, Silhouette, Davies--Bouldin and
+  Calinski--Harabasz indices, baselines, stability, sensitivity and the
+  effect of replicated records (Section~\ref{sec:evaluation}).
+  \item \textbf{Profiling and external validation} with \texttt{Attrition}
+  (Section~\ref{sec:profiling}), followed by conclusions and recommendations
+  (Section~\ref{sec:conclusion}).
+\end{enumerate}
+
+\subsection{Source Code}
+
+All steps are implemented in a single Jupyter notebook,
+\nolinkurl{HR-Analytics-Case-Study-Clustering.ipynb}, which runs from beginning
+to end and produces every table and figure of this report. The notebook,
+data and report sources are available in the public GitHub repository:
+\begin{center}
+{\footnotesize\url{https://github.com/TatesBalthazar/Project-3---Clustering-HR-Analytics-Case-Study}}
+\end{center}
 
 % =====================================================================
 
 \section{Initial Data Inspection}
+\label{sec:inspection}
 
 Before data preprocessing, an initial inspection was conducted
 to understand the structure and quality of all five datasets.
@@ -394,10 +463,10 @@ WorkLifeBalance & 38 & 0.86\%\\
 
 \subsubsection{Manager Dataset}
 
-The \texttt{manager} dataset contains three attributes:
-\texttt{EmployeeID}, \texttt{JobInvolvement}, and
-\texttt{PerformanceRating}. All 4,410 records are non-null,
-indicating that no missing values were detected.
+The \texttt{manager} dataset contains three attributes
+(\texttt{EmployeeID}, \texttt{JobInvolvement} and
+\texttt{PerformanceRating}). All 4,410 records are non-null,
+so no missing values were detected in this file.
 
 \subsubsection{Attendance Datasets}
 
@@ -449,6 +518,7 @@ attendance records, handle missing values, and prepare
 suitable features for clustering.
 % =====================================================================
 \section{Data Cleaning}
+\label{sec:cleaning}
 
 The inspection in the previous section showed missing values in the
 \texttt{general}, \texttt{employee}, \texttt{in\_time} and
@@ -473,6 +543,13 @@ Duplicates were checked again after merging, because joins can silently
 multiply rows. Two criteria were used: fully identical rows and repeated
 \texttt{EmployeeID}. Both checks returned 0, so no record was removed and the
 table keeps 4,410 employees.
+
+A third check compared the rows of \texttt{general} \emph{without} the
+identifier. Here 2,912 rows (66\%) are identical to another row in every
+column except \texttt{EmployeeID}: the file contains only 1,498 distinct
+profiles, most of them three times. The copies have different survey answers
+and attendance logs, so they are not plain duplicates and were kept. Their
+effect on the models is analysed in Section~\ref{sec:replicated}.
 
 % ---------------------------------------------------------------------
 \subsection{Handling Missing Values}
@@ -671,30 +748,13 @@ The 29 attributes of \texttt{df\_clean} are: 21 attributes of
 features. The cleaned table has one row per employee and is ready for
 exploratory data analysis and feature selection.
 
-\begin{lstlisting}[caption={Core of the attendance cleaning step}]
-in_dt  = in_df.apply(pd.to_datetime, errors="coerce")
-out_dt = out_df.apply(pd.to_datetime, errors="coerce")
+The complete code of every step is in the accompanying notebook (see the
+GitHub repository in Section~\ref{sec:intro}).
 
-# drop public holidays: days with no swipe for every employee
-holiday = in_dt.columns[in_dt.isna().all() & out_dt.isna().all()]
-in_dt, out_dt = in_dt.drop(columns=holiday), out_dt.drop(columns=holiday)
-
-# keep only days with both in and out
-half = in_dt.isna() ^ out_dt.isna()
-in_dt, out_dt = in_dt.mask(half), out_dt.mask(half)
-
-hours = (out_dt - in_dt).apply(lambda s: s.dt.total_seconds() / 3600)
-hours = hours.mask((hours <= 0) | (hours > 24))
-
-att = pd.DataFrame({
-    "AvgWorkHours": hours.mean(axis=1),          # NaN days skipped
-    "AbsentDays":   hours.isna().sum(axis=1),
-})
-att["AbsentRate"] = att["AbsentDays"] / hours.shape[1]
-\end{lstlisting}
 
 % =====================================================================
 \section{Exploratory Data Analysis and Feature Selection}
+\label{sec:eda-fs}
 
 This section examines the cleaned table \texttt{df\_clean}, selects the
 variables used for clustering, and prepares them (encoding, scaling,
@@ -835,19 +895,137 @@ Three observations drive the feature selection:
 \end{enumerate}
 
 % ---------------------------------------------------------------------
+\subsection{Outlier Detection}
+
+Outliers were counted with the interquartile-range rule: a value is an
+outlier if it lies below $Q_1 - 1.5\,\mathrm{IQR}$ or above
+$Q_3 + 1.5\,\mathrm{IQR}$, where $\mathrm{IQR} = Q_3 - Q_1$.
+Table~\ref{tab:outliers} lists every variable with outliers and the decision
+taken.
+
+\begin{table}[H]
+\centering
+\caption{Outliers by the IQR rule and handling decision}
+\label{tab:outliers}
+\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.3cm} r r >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Variable} & \textbf{Outliers} & \textbf{\%} & \textbf{Decision}\\
+\midrule
+TrainingTimesLastYear   & 714 & 16.2 & Keep; discrete 0--6, not a clustering feature\\
+PerformanceRating       & 678 & 15.4 & Keep; only values 3 and 4, the rule flags all 4s\\
+MonthlyIncome           & 342 & 7.8  & Keep; real high salaries, reduced by $\log(1+x)$\\
+YearsSinceLastPromotion & 321 & 7.3  & Keep; stagnation is a profile of interest, $\log(1+x)$\\
+YearsAtCompany          & 312 & 7.1  & Keep; long tenure is real, $\log(1+x)$\\
+StockOptionLevel        & 255 & 5.8  & Keep; discrete 0--3, not a clustering feature\\
+TotalWorkingYears       & 189 & 4.3  & Keep; $\log(1+x)$\\
+NumCompaniesWorked      & 156 & 3.5  & Keep; not a clustering feature\\
+YearsWithCurrManager    & 42  & 1.0  & Keep; not a clustering feature\\
+AvgWorkHours            & 38  & 0.9  & Keep; long hours are the overtime profile of interest\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+None of the flagged values is impossible (no negative tenure, no working day
+longer than 24 hours), so no outlier is a data error. They are real but
+extreme employees: senior staff with high pay or long tenure, and people who
+work long days. Deleting them would remove exactly the profiles HR is
+interested in, so all of them were \textbf{kept}. Instead, the skewed
+clustering features are log-transformed (Section~\ref{sec:prep}) so that the
+extremes do not dominate the distances. For discrete variables such as
+\texttt{PerformanceRating} the IQR rule flags a whole category, which is not an
+outlier in a meaningful sense.
+
+% ---------------------------------------------------------------------
+\subsection{Hypothesis Tests: Leavers vs.\ Stayers}
+\label{sec:hypothesis}
+
+Before clustering, each variable was tested for a difference between
+employees who left and those who stayed. The null hypothesis $H_0$ is that
+the variable has the same distribution in both groups. The Mann--Whitney $U$
+test was used for numeric and ordinal variables, because it does not assume
+normality, and the chi-square test of independence for categorical variables.
+\texttt{Attrition} is used here only to understand the data.
+
+\begin{table}[H]
+\centering
+\caption{Tests of difference between leavers and stayers ($\alpha = 0.05$)}
+\label{tab:hypothesis}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Variable} & \textbf{Test} & \textbf{Median (left)} & \textbf{Median (stayed)} & \textbf{p-value}\\
+\midrule
+TotalWorkingYears       & Mann--Whitney & 7.0  & 10.0 & $2.4\times10^{-39}$\\
+AvgWorkHours            & Mann--Whitney & 8.19 & 7.31 & $8.0\times10^{-37}$\\
+YearsAtCompany          & Mann--Whitney & 3.0  & 6.0  & $1.2\times10^{-36}$\\
+YearsWithCurrManager    & Mann--Whitney & 2.0  & 3.0  & $2.5\times10^{-31}$\\
+MaritalStatus           & Chi-square    & --   & --   & $8.5\times10^{-31}$\\
+Age                     & Mann--Whitney & 32   & 36   & $6.0\times10^{-30}$\\
+BusinessTravel          & Chi-square    & --   & --   & $1.8\times10^{-16}$\\
+JobSatisfaction         & Mann--Whitney & 3    & 3    & $6.4\times10^{-12}$\\
+EnvironmentSatisfaction & Mann--Whitney & 3    & 3    & $3.0\times10^{-10}$\\
+Department              & Chi-square    & --   & --   & $4.8\times10^{-7}$\\
+WorkLifeBalance         & Mann--Whitney & 3    & 3    & $7.8\times10^{-4}$\\
+AbsentRate              & Mann--Whitney & 0.048 & 0.052 & $6.5\times10^{-3}$\\
+\midrule
+NumCompaniesWorked      & Mann--Whitney & 1    & 2    & 0.058\\
+MonthlyIncome           & Mann--Whitney & 49{,}080 & 49{,}300 & 0.107\\
+Gender                  & Chi-square    & --   & --   & 0.245\\
+JobInvolvement          & Mann--Whitney & 3    & 3    & 0.463\\
+JobLevel                & Mann--Whitney & 2    & 2    & 0.842\\
+DistanceFromHome        & Mann--Whitney & 7    & 7    & 0.926\\
+\bottomrule
+\end{tabular}
+
+\footnotesize Selected variables. Above the line: significant at
+$\alpha = 0.05$; below: not significant. The full table is in the notebook.
+\end{table}
+
+\begin{itemize}
+  \item The strongest differences concern \textbf{tenure}: leavers are younger
+  and have fewer working years, fewer years at the company and fewer years
+  with their manager.
+  \item \textbf{Working hours} are just as important: leavers work about 8.2
+  hours per day against 7.3 for stayers.
+  \item The three \textbf{satisfaction} scores, business travel, marital
+  status and department also differ significantly (for the ordinal scores
+  the medians are equal, but the distributions are shifted).
+  \item \textbf{Income, job level, job involvement, distance from home and
+  gender do not differ} ($p > 0.05$).
+  \item These results support using tenure, workload and satisfaction as
+  clustering features. Distance from home is not linked to attrition but is
+  kept to describe the commute dimension.
+  \item Caveat: many records are replicated in this dataset
+  (Section~\ref{sec:replicated}), so the effective sample is about 1,500
+  rather than 4,410 and the p-values are optimistic. The large effects remain
+  significant either way.
+\end{itemize}
+
+% ---------------------------------------------------------------------
 \subsection{Feature Selection}
 
 The features were chosen to describe the three kinds of segments targeted by
 the project: senior and well-paid staff, newcomers and employees at burnout
 risk, and employees with heavy workload but low satisfaction.
-Table~\ref{tab:features} lists the 13 selected features by group.
+Table~\ref{tab:features} lists the 13 selected features by group. The
+choice is also supported by the hypothesis tests of
+Section~\ref{sec:hypothesis}: tenure, workload and satisfaction differ
+between leavers and stayers.
+
+The four satisfaction scores need a remark. They are kept because describing
+satisfaction is part of the project goal, but they are almost uncorrelated
+with every other feature, so they may add little \emph{group structure}. This
+is tested in the sensitivity analysis (Section~\ref{sec:sensitivity}):
+removing them barely changes the clusters.
 
 \begin{table}[H]
 \centering
 \caption{Selected clustering features}
 \label{tab:features}
 \small
-\begin{tabularx}{\textwidth}{l X X}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Group} & \textbf{Features} & \textbf{Purpose}\\
 \midrule
@@ -866,7 +1044,7 @@ Commute \& travel & DistanceFromHome, BusinessTravel & Extra load outside workin
 \caption{Variables not used as clustering input}
 \label{tab:dropped}
 \small
-\begin{tabularx}{\textwidth}{l X}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{5.6cm} >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Variable} & \textbf{Reason}\\
 \midrule
@@ -1054,6 +1232,7 @@ not used as clustering input.
 
 % =====================================================================
 \section{Clustering Models}
+\label{sec:models}
 
 Three algorithms were applied to the matrix \texttt{X} of 4,410 employees
 $\times$ 13 scaled features (Section~\ref{sec:prep}): K-Means,
@@ -1417,6 +1596,7 @@ assignments near a border should not be over-interpreted.
 
 % ---------------------------------------------------------------------
 \subsection{Sensitivity to the Feature Groups}
+\label{sec:sensitivity}
 
 Each of the four feature groups (Table~\ref{tab:features}) was removed in turn
 and K-Means ($k=5$) was refitted. A high ARI with the final model means the
@@ -1450,6 +1630,97 @@ The survey scores add noise rather than structure, which matches the EDA
 (they are uncorrelated with every other variable). They are kept in the model
 because the project aims to describe satisfaction, but no segment should be
 expected to be defined by satisfaction alone.
+
+% ---------------------------------------------------------------------
+\subsection{Choice of $k$: $k=3$ vs.\ $k=5$}
+
+Model selection (Table~\ref{tab:km}) kept $k=5$ but noted $k=3$ as a close,
+slightly more stable alternative. Table~\ref{tab:k3k5} compares the two on
+all criteria, including the link with attrition.
+
+\begin{table}[H]
+\centering
+\caption{K-Means with $k=3$ and $k=5$}
+\label{tab:k3k5}
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Criterion} & $\boldsymbol{k=3}$ & $\boldsymbol{k=5}$\\
+\midrule
+Silhouette $\uparrow$          & 0.081 & 0.082\\
+Davies--Bouldin $\downarrow$   & 3.046 & \textbf{2.666}\\
+Calinski--Harabasz $\uparrow$  & \textbf{387.8} & 310.9\\
+Stability (ARI, 80\% subsamples) & \textbf{0.851} & 0.816\\
+Cramér's $V$ with Attrition $\uparrow$ & 0.159 & \textbf{0.255}\\
+Attrition range across clusters & 11.4\%--25.2\% & \textbf{8.6\%--37.1\%}\\
+Cluster sizes & 1,852 / 1,280 / 1,278 & 1,469 / 949 / 740 / 696 / 556\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The internal indices are almost tied: $k=3$ is slightly better on
+Calinski--Harabasz (which always favours small $k$) and stability, $k=5$ is
+clearly better on Davies--Bouldin. The decisive difference is external:
+$k=3$ only splits employees by tenure, so attrition varies only between 11\%
+and 25\%, whereas $k=5$ also isolates the overtime and long-commute groups and
+separates attrition much more sharply (8.6\% to 37.1\%, Cramér's $V$ 0.26
+instead of 0.16). Since the indices do not prefer either option, the better
+external validity and the more actionable segments justify $k=5$.
+
+% ---------------------------------------------------------------------
+\subsection{Effect of Replicated Records}
+\label{sec:replicated}
+
+As noted in Section~\ref{sec:cleaning}, the 4,410 employees come from only
+1,498 distinct \texttt{general} profiles: 4,326 employees belong to a profile
+that appears three times, 56 to a profile that appears twice and 28 are
+unique. Copies always share the same \texttt{Attrition} value, but have
+different survey answers and attendance logs. The Kaggle file was evidently
+built by replicating a smaller HR table.
+
+In the 13-feature clustering space the copies sit close together: for 92.2\%
+of employees the nearest neighbour is a copy of themselves, and the median
+distance between copies (1.09) is about 4.5 times smaller than between two
+random employees (4.93). Table~\ref{tab:replicated} shows what happens when
+only one copy per profile is kept.
+
+\begin{table}[H]
+\centering
+\caption{DBSCAN noise share on all employees and on one copy per profile
+(\texttt{min\_samples} = 26)}
+\label{tab:replicated}
+\small
+\begin{tabular}{rrrr}
+\toprule
+$\boldsymbol{\varepsilon}$ & \textbf{Noise, all 4,410 (\%)} & \textbf{Noise, 1,498 profiles (\%)}
+& \textbf{Clusters (profiles)}\\
+\midrule
+2.6 & 21.0 & 48.8 & 1\\
+2.8 & 7.9  & 26.2 & 1\\
+3.0 & 2.4  & 10.1 & 1\\
+3.2 & 0.7  & 3.3  & 1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{DBSCAN.} Every point automatically has two very close
+  neighbours, so the local density is artificially high. With one copy per
+  profile the same $\varepsilon$ marks 2--5 times more employees as noise
+  (10.1\% instead of 2.4\% at $\varepsilon = 3.0$). The $\varepsilon$ chosen
+  on the full data is therefore optimistic. DBSCAN still finds a single
+  cluster: the replication does not create a group structure, it only hides
+  sparse regions.
+  \item \textbf{K-Means.} On one copy per profile the silhouette barely
+  changes (0.076 vs.\ 0.082), but the partition is only partly reproduced
+  (ARI 0.51 with the final model), consistent with soft cluster borders.
+  \item \textbf{Statistical tests.} The effective sample is about 1,500
+  independent profiles, so the p-values of the hypothesis tests and of the
+  chi-square test with attrition are smaller than they should be. Because the
+  effects are large, the conclusions do not change.
+  \item The records were kept, because each copy carries its own survey and
+  attendance information.
+\end{itemize}
 
 % =====================================================================
 \section{Cluster Profiling and External Validation}
@@ -1591,6 +1862,45 @@ Steady core       & 127 & 8.6\%  & 33.3\% & 17.9\% & 0.54\\
   \item The steady core is the most stable segment (8.6\%).
 \end{itemize}
 
+\paragraph{Cluster $\times$ Attrition matrix.} A clustering model does not
+predict a label, so a classic confusion matrix cannot be computed. Its
+closest equivalent is the contingency matrix between the clusters and the
+true \texttt{Attrition} value (Figure~\ref{fig:attrition-matrix}). Reading
+row by row, 206 of the 556 newcomers left (37.1\%), but only 127 of the 1,469
+employees of the steady core (8.6\%). Two segments, newcomers and overtime
+workers, contain 379 of the 711 leavers. A partition unrelated to attrition
+would show about 16\% in every row, as the random baseline does.
+
+\begin{figure}[H]
+\centering
+\safefig[0.85\textwidth]{eval_attrition_matrix.png}{Cluster by Attrition matrix}
+\caption{Contingency matrix between K-Means segments and \texttt{Attrition}:
+counts (left) and percentages within each segment (right).}
+\label{fig:attrition-matrix}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\subsection{Agreement between K-Means and Ward}
+
+\begin{figure}[H]
+\centering
+\safefig[0.7\textwidth]{eval_km_vs_ward.png}{K-Means vs Ward}
+\caption{Number of employees in each combination of K-Means segment and
+Ward cluster ($k=5$).}
+\label{fig:km-ward}
+\end{figure}
+
+Figure~\ref{fig:km-ward} shows where the two algorithms agree. The cores of
+most segments coincide: 74.6\% of the stagnant veterans, 73.5\% of the
+steady core and 69.8\% of the newcomers fall into a single Ward cluster. The
+algorithms disagree in two places. Ward puts the newcomers and most long
+commuters into the \emph{same} cluster, so it does not separate distance
+from low tenure, and it spreads the overtime workers over several clusters
+(only 48.1\% in the best match). This explains the moderate ARI of 0.34: both
+methods find the main structure but draw different borders in a continuous
+cloud. The K-Means partition is preferred because it separates attrition
+better (Cramér's $V$ 0.26 vs.\ 0.16).
+
 % =====================================================================
 \section{Conclusion}
 \label{sec:conclusion}
@@ -1609,20 +1919,66 @@ continuous data but is useful as an anomaly detector: 2.4\% of employees,
 mostly high-level staff with long working hours and poor work-life balance,
 with 36\% attrition.
 
-\paragraph{Practical implications.}
-\begin{itemize}
-  \item \emph{Newcomers} are the main retention risk: strengthen onboarding,
-  mentoring and a clear first-promotion path during the first two years.
-  \item \emph{Overtime workers} leave 1.45 times more often than average:
-  monitor working hours, rebalance workload and limit sustained overtime,
-  since satisfaction surveys alone do not reveal this group.
-  \item \emph{Stagnant veterans} have waited about seven years for promotion;
-  recognition, expert career tracks or job rotation can keep them engaged.
-  \item \emph{Long commuters} are not a high-risk group today, but flexible or
-  remote work could protect them.
-  \item The \emph{steady core} is stable and can provide mentors for
-  newcomers.
-\end{itemize}
+\paragraph{Practical implications.} The segmentation tells HR \emph{where}
+to act first and \emph{what kind} of action fits each group.
+Table~\ref{tab:actions} summarises the evidence and the recommended actions.
+
+\begin{table}[H]
+\centering
+\caption{Recommended HR actions by segment}
+\label{tab:actions}
+\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.4cm}
+  >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Segment} & \textbf{What the data shows} & \textbf{Recommended actions}\\
+\midrule
+\textbf{Newcomers} (12.6\%)
+ & About 2.5 years of experience and 1.3 years at the company; 37\% leave,
+   2.3 times the average. They are 13\% of the staff but 29\% of all leavers.
+ & Structured onboarding with a named mentor; check-in meetings after 3, 6
+   and 12 months; a visible path to the first promotion within two years;
+   exit interviews to learn why they leave.\\
+\addlinespace
+\textbf{Overtime workers} (16.8\%)
+ & About 9.7 hours per day, two hours more than average, and the fewest
+   absences; 23\% leave, 1.45 times the average. Their satisfaction scores
+   are \emph{not} lower, so a survey would not reveal them.
+ & Monthly report of working hours per team; an alert when an employee
+   exceeds about 9 hours per day for several weeks; redistribute work or
+   hire; compensatory time off.\\
+\addlinespace
+\textbf{Stagnant veterans} (21.5\%)
+ & About 14 years at the company and 7 years without promotion; the highest
+   income; 12\% leave.
+ & Career conversations; specialist tracks that do not require a management
+   position; job rotation; a mentoring role for newcomers.\\
+\addlinespace
+\textbf{Long commuters} (15.8\%)
+ & About 23 km from home, otherwise average; 13\% leave.
+ & Not a priority today; flexible hours or partial remote work and a
+   transport allowance can prevent fatigue.\\
+\addlinespace
+\textbf{Steady core} (33.3\%)
+ & About 7 hours per day, close to the office, recently promoted; 9\% leave.
+ & Keep current conditions; use as the reference group when evaluating HR
+   policies.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\textbf{How to use the segmentation in practice.}
+\begin{enumerate}
+  \item Assign every current and new employee to a segment with the fitted
+  scaler and K-Means model.
+  \item Concentrate the retention budget on the two high-risk segments. They
+  hold 53\% of all leavers but only 29\% of the workforce, so the same effort
+  reaches almost twice as many potential leavers as an untargeted programme.
+  \item Review the 105 DBSCAN anomalies one by one: they combine long hours,
+  poor work-life balance and a 36\% attrition rate.
+  \item Repeat the clustering every year to see whether employees move out
+  of the high-risk segments after the actions above.
+\end{enumerate}
 
 \paragraph{Limitations.}
 \begin{itemize}
@@ -1632,9 +1988,11 @@ with 36\% attrition.
   \item The satisfaction scores add no structure (removing them barely changes
   the partition), so the segmentation cannot identify satisfaction-based
   groups.
-  \item The dataset is semi-synthetic (many replicated records; several
-  attributes behave like independent random values), attendance covers only
-  2015, and K-Means assumes roughly spherical clusters of similar size.
+  \item The dataset is semi-synthetic: the 4,410 employees come from only
+  1,498 distinct profiles (Section~\ref{sec:replicated}), which inflates the
+  density used by DBSCAN and makes p-values optimistic; several attributes
+  behave like independent random values; attendance covers only 2015; and
+  K-Means assumes roughly spherical clusters of similar size.
 \end{itemize}
 
 \paragraph{Future work.} Gaussian Mixture Models (soft membership) or
