@@ -689,6 +689,888 @@ att["AbsentRate"] = att["AbsentDays"] / hours.shape[1]
 \end{lstlisting}
 
 % =====================================================================
+\section{Exploratory Data Analysis and Feature Selection}
+
+This section examines the cleaned table \texttt{df\_clean}, selects the
+variables used for clustering, and prepares them (encoding, scaling,
+dimensionality reduction). No target variable exists in clustering, so the
+EDA looks for the distributions and relationships that decide which fields can
+separate groups of employees. \texttt{Attrition} is not used here; it is kept
+for the external validation of the clusters.
+
+% ---------------------------------------------------------------------
+\subsection{Distribution Analysis}
+
+\subsubsection{Age, income, tenure, distance and working hours}
+
+Table~\ref{tab:eda-summary} and Figure~\ref{fig:eda-dist} describe the main
+numeric variables.
+
+\begin{table}[H]
+\centering
+\caption{Summary statistics of the main numeric variables}
+\label{tab:eda-summary}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Variable} & \textbf{Mean} & \textbf{Std} & \textbf{Min}
+& \textbf{Median} & \textbf{Max} & \textbf{Skew}\\
+\midrule
+Age                & 36.92 & 9.13 & 18 & 36 & 60 & 0.41\\
+MonthlyIncome      & 65,029 & 47,069 & 10,090 & 49,190 & 199,990 & 1.37\\
+TotalWorkingYears  & 11.28 & 7.77 & 0 & 10 & 40 & 1.12\\
+YearsAtCompany     & 7.01 & 6.13 & 0 & 5 & 40 & 1.76\\
+DistanceFromHome   & 9.19 & 8.11 & 1 & 7 & 29 & 0.96\\
+AvgWorkHours       & 7.70 & 1.34 & 5.95 & 7.41 & 11.03 & 0.86\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\safefig{eda_dist.png}{Distribution of the main numeric variables}
+\caption{Distribution of the main numeric variables with mean (dashed) and
+median (solid).}
+\label{fig:eda-dist}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Age} is almost symmetric (skew 0.41) and ranges from 18 to 60,
+  so no transformation is needed.
+  \item \textbf{MonthlyIncome} is right-skewed (skew 1.37): the mean (65,029)
+  is well above the median (49,190), and a few employees earn close to 200,000.
+  \item \textbf{TotalWorkingYears} and \textbf{YearsAtCompany} are also
+  right-skewed (1.12 and 1.76). Half of the employees have been at the company
+  for 5 years or less, while a small group reaches 40 years.
+  \item \textbf{DistanceFromHome} is slightly right-skewed (0.96); half of
+  the employees live within 7~km, the maximum is 29~km.
+  \item \textbf{AvgWorkHours} (from the attendance logs) has a mean of 7.70
+  hours and a range of 5.95--11.03 hours. About 18\% of employees (813) average more than 9
+  hours per day, which is the overload signal sought for clustering.
+\end{itemize}
+
+The box plots in Figure~\ref{fig:eda-box} show the same upper tails as outlier
+points. These values are real (senior staff, very long careers) and are exactly
+the groups clustering should detect, so they are \emph{not removed}; the skew is
+reduced by a log transformation instead (Section~\ref{sec:prep}).
+
+\begin{figure}[H]
+\centering
+\safefig{eda_boxplot.png}{Box plots of the main numeric variables}
+\caption{Box plots of the main numeric variables.}
+\label{fig:eda-box}
+\end{figure}
+
+\subsubsection{Satisfaction and engagement surveys}
+
+\begin{figure}[H]
+\centering
+\safefig{eda_survey.png}{Distribution of survey scores}
+\caption{Share of employees at each score (1--4) of the four survey variables.}
+\label{fig:eda-survey}
+\end{figure}
+
+Figure~\ref{fig:eda-survey} shows two different patterns.
+\texttt{EnvironmentSatisfaction} and \texttt{JobSatisfaction} are spread over
+all four levels: about 39\% of employees give a low score (1--2) and about 61\%
+a high score (3--4), so a clearly dissatisfied group exists.
+\texttt{WorkLifeBalance} and \texttt{JobInvolvement} are concentrated at level 3
+(61.2\% and 59.0\%), and only 5.4\% and 5.6\% of employees choose level 1. These
+two variables separate groups less strongly, but their extreme levels point to
+small and potentially at-risk segments.
+
+% ---------------------------------------------------------------------
+\subsection{Correlation Analysis}
+
+Spearman correlation was used because many variables are ordinal or skewed.
+Figure~\ref{fig:eda-corr} shows the matrix and
+Table~\ref{tab:eda-corr} lists the pairs with $|\rho| \ge 0.5$.
+
+\begin{figure}[H]
+\centering
+\safefig[0.9\textwidth]{eda_corr.png}{Spearman correlation matrix}
+\caption{Spearman correlation matrix of the numeric variables.}
+\label{fig:eda-corr}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Strongly correlated pairs ($|\rho| \ge 0.5$)}
+\label{tab:eda-corr}
+\small
+\begin{tabular}{llr}
+\toprule
+\textbf{Variable 1} & \textbf{Variable 2} & \textbf{Spearman $\rho$}\\
+\midrule
+AbsentDays        & AbsentRate              & 1.00\\
+YearsAtCompany    & YearsWithCurrManager    & 0.84\\
+Age               & TotalWorkingYears       & 0.66\\
+PercentSalaryHike & PerformanceRating       & 0.63\\
+TotalWorkingYears & YearsAtCompany          & 0.59\\
+YearsAtCompany    & YearsSinceLastPromotion & 0.52\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three observations drive the feature selection:
+
+\begin{enumerate}
+  \item The strongly correlated pairs are redundant measurements of the same
+  idea (tenure, age, absence). Keeping both variables would count that idea
+  twice in a distance-based model.
+  \item Outside these pairs the variables are almost uncorrelated. For example
+  \texttt{MonthlyIncome} is unrelated to \texttt{JobLevel}
+  ($\rho = 0.05$) and to tenure, and \texttt{AvgWorkHours} is unrelated to the
+  satisfaction scores ($|\rho| \le 0.05$). Income therefore acts as an
+  independent dimension, and a single ``senior and well paid'' axis should not
+  be expected.
+  \item The only noticeable relation of \texttt{AvgWorkHours} is with
+  \texttt{AbsentRate} ($\rho = -0.23$): employees who work longer days are
+  absent less often.
+\end{enumerate}
+
+% ---------------------------------------------------------------------
+\subsection{Feature Selection}
+
+The features were chosen to describe the three kinds of segments targeted by
+the project: senior and well-paid staff, newcomers and employees at burnout
+risk, and employees with heavy workload but low satisfaction.
+Table~\ref{tab:features} lists the 13 selected features by group.
+
+\begin{table}[H]
+\centering
+\caption{Selected clustering features}
+\label{tab:features}
+\small
+\begin{tabularx}{\textwidth}{l X X}
+\toprule
+\textbf{Group} & \textbf{Features} & \textbf{Purpose}\\
+\midrule
+Seniority \& pay & MonthlyIncome, JobLevel, TotalWorkingYears,
+  YearsAtCompany, YearsSinceLastPromotion & Senior vs.\ new staff, stagnation\\
+Workload \& attendance & AvgWorkHours, AbsentRate & Overload and absence\\
+Satisfaction \& engagement & EnvironmentSatisfaction, JobSatisfaction,
+  WorkLifeBalance, JobInvolvement & Well-being, engagement\\
+Commute \& travel & DistanceFromHome, BusinessTravel & Extra load outside working hours\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Variables not used as clustering input}
+\label{tab:dropped}
+\small
+\begin{tabularx}{\textwidth}{l X}
+\toprule
+\textbf{Variable} & \textbf{Reason}\\
+\midrule
+EmployeeID, Attrition & Identifier; Attrition is kept for external validation\\
+AbsentDays & Duplicate of AbsentRate ($\rho = 1.00$)\\
+YearsWithCurrManager & Redundant with YearsAtCompany ($\rho = 0.84$)\\
+Age & Redundant with TotalWorkingYears ($\rho = 0.66$)\\
+PerformanceRating & Only two values (3: 84.6\%, 4: 15.4\%) and tied to PercentSalaryHike\\
+PercentSalaryHike & Tied to PerformanceRating ($\rho = 0.63$), unrelated to the goal\\
+Education, NumCompaniesWorked, StockOptionLevel, TrainingTimesLastYear
+  & Not linked to the workload, satisfaction or seniority goals\\
+Department, JobRole, EducationField, MaritalStatus, Gender
+  & Nominal; used to profile the clusters after clustering\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ---------------------------------------------------------------------
+\subsection{Feature Preprocessing for Clustering}
+\label{sec:prep}
+
+\subsubsection{Encoding}
+
+\begin{itemize}
+  \item \textbf{Ordinal encoding.} \texttt{BusinessTravel} has a natural order
+  and was mapped to Non-Travel $=0$, Travel\_Rarely $=1$,
+  Travel\_Frequently $=2$.
+  \item \textbf{One-hot encoding.} The five nominal variables (Department,
+  JobRole, EducationField, MaritalStatus, Gender) have no order and were
+  one-hot encoded into 23 binary columns. They are \emph{not} part of the
+  clustering input: they would make up 23 of the 36 columns and dominate the
+  distances, and they lower the silhouette score (Table~\ref{tab:silhouette}).
+  They are kept to profile the clusters.
+  \item The survey scores and \texttt{JobLevel} are already ordered integers
+  and are used as they are.
+\end{itemize}
+
+\subsubsection{Log transformation}
+
+Continuous variables with skewness above 1 were transformed with
+$x' = \log(1 + x)$ (Figure~\ref{fig:prep-skew}). The transformation keeps every
+employee, pulls in the long upper tail, and is safe for the value 0.
+
+\begin{table}[H]
+\centering
+\caption{Skewness before and after the $\log(1+x)$ transformation}
+\label{tab:skew-log}
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Variable} & \textbf{Before} & \textbf{After}\\
+\midrule
+MonthlyIncome           & 1.37 & 0.29\\
+TotalWorkingYears       & 1.12 & $-0.62$\\
+YearsAtCompany          & 1.76 & $-0.21$\\
+YearsSinceLastPromotion & 1.98 & 0.72\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\safefig{prep_skew.png}{Skewed variables before and after log1p}
+\caption{Skewed variables before (top) and after (bottom) the
+$\log(1+x)$ transformation.}
+\label{fig:prep-skew}
+\end{figure}
+
+\subsubsection{Feature scaling}
+
+\texttt{StandardScaler} was applied, $z = (x - \mu)/\sigma$, so every feature has
+mean 0 and variance 1. Without scaling, \texttt{MonthlyIncome}
+(standard deviation 47,069) is thousands of times larger than the other
+variables (for example 8.11 for \texttt{DistanceFromHome}) and decides almost
+all of the distance. Table~\ref{tab:silhouette} confirms the effect: the
+unscaled data gives a silhouette score of 0.708 for $k=2$, but this is an
+artefact of one dominant variable, not a real group structure.
+
+\begin{table}[H]
+\centering
+\caption{K-Means silhouette score by number of clusters $k$ for three
+preprocessing choices}
+\label{tab:silhouette}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Input} & $k=2$ & $k=3$ & $k=4$ & $k=5$ & $k=6$\\
+\midrule
+Raw features (no scaling)       & 0.708 & 0.624 & 0.610 & 0.617 & 0.618\\
+Log + StandardScaler (13 features) & 0.103 & 0.082 & 0.078 & 0.082 & 0.080\\
+Scaled + one-hot nominal (36 columns) & 0.083 & 0.064 & 0.061 & 0.064 & 0.062\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\texttt{StandardScaler} was preferred over \texttt{MinMaxScaler} because the data
+still contains tail values after the log transformation, and min--max scaling
+would squeeze most employees into a narrow range.
+
+% ---------------------------------------------------------------------
+\subsection{Dimensionality Reduction}
+
+\subsubsection{PCA}
+
+PCA was fitted on the 13 scaled features.
+Figure~\ref{fig:pca} shows that the first two components explain only
+15.8\% and 9.8\% of the variance (25.6\% together), and 11 of the 13
+components are needed to reach 90\%. The information is therefore spread over
+many directions, and PCA would remove very little. For this reason PCA is used
+\textbf{for visualisation only}, and the clustering algorithms run on the 13
+scaled features.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.52\textwidth}
+  \centering
+  \safefig[\textwidth]{pca_scree.png}{PCA scree plot}
+  \caption{Explained variance}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.42\textwidth}
+  \centering
+  \safefig[\textwidth]{pca_loadings.png}{PCA loadings}
+  \caption{Loadings of PC1--PC3}
+\end{subfigure}
+\caption{PCA of the scaled features.}
+\label{fig:pca}
+\end{figure}
+
+The loadings give each component a clear meaning:
+
+\begin{itemize}
+  \item \textbf{PC1 (15.8\%) -- tenure}: \texttt{YearsAtCompany} (0.62),
+  \texttt{TotalWorkingYears} (0.56) and \texttt{YearsSinceLastPromotion} (0.54).
+  \item \textbf{PC2 (9.8\%) -- workload}: \texttt{AvgWorkHours} (0.69) against
+  \texttt{AbsentRate} ($-0.66$).
+  \item \textbf{PC3 -- pay and travel}: \texttt{MonthlyIncome} (0.68),
+  \texttt{JobLevel} (0.38), \texttt{BusinessTravel} ($-0.48$) and
+  \texttt{DistanceFromHome} ($-0.34$).
+\end{itemize}
+
+\subsubsection{PCA and t-SNE in 2D}
+
+Figure~\ref{fig:embedding} projects the employees onto two dimensions with PCA
+and t-SNE (perplexity 30, \texttt{random\_state=42}), coloured by
+\texttt{AvgWorkHours}. The colour is only a visual aid and is not used by the
+models.
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{embedding_2d.png}{PCA and t-SNE projections}
+\caption{PCA (left) and t-SNE (right) projections of the scaled features,
+coloured by \texttt{AvgWorkHours}.}
+\label{fig:embedding}
+\end{figure}
+
+In the PCA view, working hours increase smoothly along PC2, which matches the
+loadings above. There is no empty gap between groups: the employees form one
+continuous cloud. The t-SNE view shows the same picture, with only a few local
+concentrations of long working hours and no clearly separated islands.
+t-SNE is used for drawing only; it does not preserve global distances, so it is
+not used as clustering input.
+
+% ---------------------------------------------------------------------
+\subsection{Summary of EDA and Feature Selection}
+
+\begin{itemize}
+  \item 13 features in four groups (seniority and pay, workload and
+  attendance, satisfaction and engagement, commute and travel) were selected;
+  redundant, constant-like and nominal variables were set aside.
+  \item The input matrix \texttt{X} (4,410 $\times$ 13) is log-transformed
+  where skewed and standardised; nominal variables are one-hot encoded for
+  profiling only.
+  \item The features are weakly correlated and the 2D projections show one
+  continuous cloud. Clusters with low-to-moderate separation should therefore be
+  expected: the silhouette score of the scaled data is about 0.08--0.10. A low
+  score here reflects the data, not an error, and the clusters will be judged
+  together with the other indices and their business meaning.
+  \item In the next phase K-Means, Hierarchical (Ward) clustering and DBSCAN are
+  run on \texttt{X}, and PCA/t-SNE are used to draw the resulting clusters.
+\end{itemize}
+
+% =====================================================================
+\section{Clustering Models}
+
+Three algorithms were applied to the matrix \texttt{X} of 4,410 employees
+$\times$ 13 scaled features (Section~\ref{sec:prep}): K-Means,
+Hierarchical clustering with Ward linkage, and DBSCAN. All results use the same
+input and \texttt{random\_state=42}.
+
+% ---------------------------------------------------------------------
+\subsection{Evaluation Criteria}
+
+Because no label exists, the clusterings are judged with internal indices.
+For employee $i$, let $a(i)$ be the mean distance to the other members of its
+cluster and $b(i)$ the mean distance to the nearest other cluster.
+
+\begin{align}
+  s(i) &= \frac{b(i) - a(i)}{\max\{a(i), b(i)\}}, \qquad
+  \text{Silhouette} = \frac{1}{n}\sum_{i=1}^{n} s(i) \in [-1, 1],\\
+  \text{WCSS} &= \sum_{j=1}^{k}\sum_{x \in C_j}\lVert x - \mu_j \rVert^2
+  \quad\text{(inertia)}.
+\end{align}
+
+\begin{itemize}
+  \item \textbf{Silhouette} (higher is better): cohesion against separation.
+  \item \textbf{Davies--Bouldin} (lower is better): average similarity between
+  each cluster and its most similar cluster.
+  \item \textbf{Calinski--Harabasz} (higher is better): ratio of between-cluster
+  to within-cluster dispersion. It tends to fall as $k$ grows, so it is read
+  together with the other indices.
+  \item \textbf{Elbow (WCSS)}: the $k$ after which the decrease of inertia
+  slows down.
+  \item \textbf{Stability}: mean Adjusted Rand Index (ARI) between K-Means
+  models fitted on 10 random 80\% subsamples, each labelling all employees. A
+  value near 1 means the same partition is found again.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\subsection{K-Means}
+
+K-Means was run for $k = 2,\dots,10$ with 20 random initialisations per $k$.
+Table~\ref{tab:km} and Figure~\ref{fig:km-selection} show the indices.
+
+\begin{table}[H]
+\centering
+\caption{K-Means model selection}
+\label{tab:km}
+\small
+\begin{tabular}{rrrrrrr}
+\toprule
+$k$ & \textbf{Inertia} & \textbf{Drop (\%)} & \textbf{Silhouette}
+& \textbf{Davies--B.} & \textbf{Calinski--H.} & \textbf{Stability}\\
+\midrule
+2  & 51,465 & --  & \textbf{0.103} & 2.716 & \textbf{502.3} & \textbf{0.947}\\
+3  & 48,751 & 5.3 & 0.081 & 3.046 & 387.8 & 0.851\\
+4  & 46,659 & 4.3 & 0.078 & 2.848 & 335.9 & 0.623\\
+5  & 44,709 & 4.2 & 0.082 & 2.666 & 310.9 & 0.816\\
+6  & 43,145 & 3.5 & 0.080 & 2.570 & 289.6 & 0.704\\
+7  & 41,837 & 3.0 & 0.075 & 2.458 & 271.8 & 0.787\\
+8  & 40,806 & 2.5 & 0.078 & 2.338 & 254.6 & 0.683\\
+9  & 39,982 & 2.0 & 0.074 & \textbf{2.251} & 238.7 & 0.602\\
+10 & 39,298 & 1.7 & 0.066 & 2.413 & 224.3 & 0.562\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{km_selection.png}{Elbow, silhouette and stability by k}
+\caption{Elbow curve, silhouette score and stability of K-Means for
+$k=2,\dots,10$. The dashed line marks the chosen $k=5$.}
+\label{fig:km-selection}
+\end{figure}
+
+\paragraph{Reading the indices.}
+\begin{itemize}
+  \item \textbf{Elbow.} The inertia falls smoothly (the drop shrinks from 5.3\%
+  to 1.7\% per extra cluster) and there is no sharp bend. The elbow method alone
+  therefore does not give a clear $k$, which is typical of data without
+  well-separated groups.
+  \item \textbf{Silhouette.} The global maximum is at $k=2$ (0.103), followed
+  by a plateau of 0.075--0.082 for $k=3,\dots,8$ with a local peak at $k=5$
+  (0.082).
+  \item \textbf{$k=2$ is too coarse.} The two clusters differ almost only in
+  tenure (mean z-scores of \texttt{YearsSinceLastPromotion}, \texttt{YearsAtCompany}
+  and \texttt{TotalWorkingYears} are $-0.53/{+}1.09$, $-0.48/{+}0.98$ and
+  $-0.36/{+}0.74$ in the two clusters, while all other features stay within
+  $\pm 0.1$). This corresponds to the first principal component
+  found in the PCA and cannot represent the workload, commute and satisfaction
+  profiles targeted by the project.
+  \item \textbf{Choice.} Restricting the search to $k \ge 3$,
+  $\mathbf{k = 5}$ has the highest silhouette (0.0819 against 0.0814 for
+  $k=3$), the lowest Davies--Bouldin value among $k=3,4,5$ (2.666), and a
+  high stability (ARI 0.82). $k=4$ and $k=6$ are clearly less stable (0.62 and
+  0.70). The margin between $k=3$ and $k=5$ is small; $k=5$ was kept because it
+  gives finer segments, and $k=3$ remains a valid coarser alternative
+  (stability 0.85).
+\end{itemize}
+
+\paragraph{Silhouette plot.}
+Figure~\ref{fig:km-silhouette} shows the silhouette of every employee for
+$k=5$. The five clusters have sizes 949, 556, 1,469, 740 and 696. The mean
+silhouette is 0.082 and only 3.2\% of employees have a negative value, so few
+employees are clearly assigned to the wrong cluster; but most values are small
+(below 0.2), meaning that the clusters touch each other rather than being
+isolated.
+
+\begin{figure}[H]
+\centering
+\safefig[0.6\textwidth]{km_silhouette_plot.png}{Silhouette plot for k = 5}
+\caption{Silhouette plot of K-Means with $k=5$.}
+\label{fig:km-silhouette}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\subsection{Hierarchical Clustering (Ward)}
+
+Agglomerative clustering with Ward linkage (minimum increase of within-cluster
+variance, Euclidean distance) was applied to the same matrix.
+Figure~\ref{fig:dendrogram} shows the dendrogram of the last 30 merges and the
+merge distance as a function of the number of clusters.
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{dendrogram_ward.png}{Ward dendrogram and merge distances}
+\caption{Ward dendrogram (left) and merge distance by number of clusters
+(right). The dashed line is the cut for $k=5$.}
+\label{fig:dendrogram}
+\end{figure}
+
+The merge distance decreases gradually: 88.0 for $k=2$, 67.1 for $k=3$, 60.1
+for $k=4$, 56.0 for $k=5$ and 51.2 for $k=6$. There is no large jump that
+would indicate a natural cut, so the dendrogram confirms that the data has a
+continuous rather than a clearly layered structure. Cutting at five clusters
+(the choice made for K-Means) gives sizes 989, 451, 434, 1,576 and 960.
+
+\begin{table}[H]
+\centering
+\caption{Ward model selection}
+\label{tab:ward}
+\small
+\begin{tabular}{rrrr}
+\toprule
+$k$ & \textbf{Silhouette} & \textbf{Davies--B.} & \textbf{Calinski--H.}\\
+\midrule
+2  & 0.073 & 2.976 & 319.3\\
+3  & 0.062 & 3.378 & 263.5\\
+4  & 0.045 & 3.543 & 235.8\\
+5  & 0.047 & 3.240 & 218.6\\
+6  & 0.048 & 3.060 & 204.6\\
+7  & 0.047 & 2.976 & 192.6\\
+8  & 0.044 & 2.989 & 184.6\\
+9  & 0.043 & 2.861 & 177.7\\
+10 & 0.038 & 2.711 & 169.5\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For every $k$ Ward has a lower silhouette than K-Means
+(Table~\ref{tab:ward} against Table~\ref{tab:km}). The two $k=5$ partitions
+agree only partly (ARI $=0.344$), so Ward does not simply reproduce the
+K-Means segments.
+
+% ---------------------------------------------------------------------
+\subsection{DBSCAN}
+
+DBSCAN finds dense regions and labels the remaining points as noise. It was used
+mainly to detect employees with unusual behaviour. With 13 features,
+\texttt{min\_samples} was set to $2 \times 13 = 26$.
+Figure~\ref{fig:kdist} shows the sorted distance of each employee to its
+26-th nearest neighbour, which guides the choice of \texttt{eps}.
+
+\begin{figure}[H]
+\centering
+\safefig[0.6\textwidth]{dbscan_kdist.png}{k-distance plot}
+\caption{k-distance plot ($k=26$). The dashed line marks $\varepsilon=3.0$.}
+\label{fig:kdist}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{DBSCAN sensitivity to $\varepsilon$ (\texttt{min\_samples}~=~26)}
+\label{tab:dbscan}
+\small
+\begin{tabular}{rrrr}
+\toprule
+$\varepsilon$ & \textbf{Clusters} & \textbf{Noise points} & \textbf{Noise (\%)}\\
+\midrule
+2.6 & 1 & 927 & 21.0\\
+2.8 & 1 & 348 & 7.9\\
+\textbf{3.0} & \textbf{1} & \textbf{105} & \textbf{2.4}\\
+3.2 & 1 & 33  & 0.7\\
+3.4 & 1 & 4   & 0.1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For every tested $\varepsilon$ DBSCAN returns \textbf{one single cluster}
+plus noise (Table~\ref{tab:dbscan}). The employees therefore form one connected
+dense region and no density-separated groups exist, which agrees with the
+dendrogram and the 2D projections. Because of this, DBSCAN cannot be used to
+segment the workforce and silhouette-type indices are not defined for it.
+It is used as an anomaly detector: $\varepsilon=3.0$ marks 105 employees
+(2.4\%) as noise, a share small enough to be reviewed individually.
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{dbscan_anomalies.png}{DBSCAN anomalies}
+\caption{The 105 DBSCAN anomalies on the t-SNE map (left) and their mean
+z-score per feature (right).}
+\label{fig:anomalies}
+\end{figure}
+
+Figure~\ref{fig:anomalies} shows what these employees have in common: they are
+high-level, long-hour employees with poor work-life balance. Compared with the
+average employee they have a higher \texttt{JobLevel} ($+0.94$), higher
+\texttt{AvgWorkHours} ($+0.87$), higher \texttt{MonthlyIncome} ($+0.69$) and
+longer commute ($+0.65$), and a much lower \texttt{WorkLifeBalance} ($-0.87$),
+shorter tenure and lower \texttt{JobInvolvement} ($-0.48$). As an external
+check, their attrition rate is \textbf{36.2\%}, against 15.6\% for the other
+employees, so the anomalies flag a group at real risk of leaving even though
+\texttt{Attrition} was never used by the algorithm.
+
+% ---------------------------------------------------------------------
+\subsection{Model Comparison and Selected Model}
+
+\begin{table}[H]
+\centering
+\caption{Comparison of the algorithms at $k=5$}
+\label{tab:comparison}
+\small
+\begin{tabular}{lrrrl}
+\toprule
+\textbf{Model} & \textbf{Silhouette} & \textbf{Davies--B.}
+& \textbf{Calinski--H.} & \textbf{Result}\\
+\midrule
+K-Means ($k=5$) & \textbf{0.082} & \textbf{2.666} & \textbf{310.9} & 5 segments\\
+Ward ($k=5$)    & 0.047 & 3.240 & 218.6 & 5 segments\\
+DBSCAN ($\varepsilon=3.0$) & -- & -- & -- & 1 cluster + 105 anomalies\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+K-Means is better than Ward on all three indices, and DBSCAN finds no
+segmentation. \textbf{K-Means with $k=5$ is therefore selected} to segment the
+employees, and DBSCAN is kept as a complementary anomaly detector.
+Figure~\ref{fig:clusters-2d} shows the K-Means clusters on the PCA and t-SNE
+maps. The clusters are neighbouring regions of one continuous cloud, not
+separate islands, as expected from the low silhouette.
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{clusters_2d.png}{K-Means clusters on PCA and t-SNE}
+\caption{K-Means clusters ($k=5$) on the PCA (left) and t-SNE (right) maps.}
+\label{fig:clusters-2d}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\subsection{Summary and Limitations}
+
+\begin{itemize}
+  \item K-Means with $k=5$ is the selected model (silhouette 0.082,
+  Davies--Bouldin 2.666, stability ARI 0.82); $k=3$ is a close, more stable
+  alternative.
+  \item All indices are low in absolute terms (silhouette below 0.11 for every
+  model and $k$). The data has weak group structure: the features are almost
+  uncorrelated and the points form one continuous cloud. The clusters should be
+  read as \emph{soft segments} along the main dimensions (tenure, workload,
+  commute), not as natural, isolated groups.
+  \item The indices alone cannot prove that $k=5$ is the true number of groups;
+  the segments must be judged by their meaning and by external validation,
+  which is done in the next section by profiling them and comparing their
+  attrition rates.
+  \item DBSCAN highlights 105 high-level, long-hour employees with poor work-life
+  balance and a 36.2\% attrition rate.
+\end{itemize}
+
+% =====================================================================
+\section{Clustering Models}
+
+Three algorithms were trained on the matrix \texttt{X} of 4,410 employees
+$\times$ 13 scaled features (Section~\ref{sec:prep}): K-Means,
+Hierarchical clustering with Ward linkage, and DBSCAN. All results use the same
+input and \texttt{random\_state=42}.
+
+% ---------------------------------------------------------------------
+\subsection{Evaluation Criteria}
+
+Because no label exists, the clusterings are judged with internal indices.
+For employee $i$, let $a(i)$ be the mean distance to the other members of its
+cluster and $b(i)$ the mean distance to the nearest other cluster.
+
+\begin{align}
+  s(i) &= \frac{b(i) - a(i)}{\max\{a(i), b(i)\}}, \qquad
+  \text{Silhouette} = \frac{1}{n}\sum_{i=1}^{n} s(i) \in [-1, 1],\\
+  \text{WCSS} &= \sum_{j=1}^{k}\sum_{x \in C_j}\lVert x - \mu_j \rVert^2
+  \quad\text{(inertia)}.
+\end{align}
+
+\begin{itemize}
+  \item \textbf{Silhouette} (higher is better): cohesion against separation.
+  \item \textbf{Davies--Bouldin} (lower is better): average similarity between
+  each cluster and its most similar cluster.
+  \item \textbf{Calinski--Harabasz} (higher is better): ratio of between-cluster
+  to within-cluster dispersion. It tends to fall as $k$ grows, so it is read
+  together with the other indices.
+  \item \textbf{Elbow (WCSS)}: the $k$ after which the decrease of inertia
+  slows down.
+  \item \textbf{Stability}: mean Adjusted Rand Index (ARI) between K-Means
+  models fitted on 10 random 80\% subsamples, each labelling all employees. A
+  value near 1 means the same partition is found again.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\subsection{K-Means}
+
+K-Means was run for $k = 2,\dots,10$ with 20 random initialisations per $k$.
+Table~\ref{tab:km} and Figure~\ref{fig:km-selection} show the indices.
+
+\begin{table}[H]
+\centering
+\caption{K-Means model selection}
+\label{tab:km}
+\small
+\begin{tabular}{rrrrrrr}
+\toprule
+$k$ & \textbf{Inertia} & \textbf{Drop (\%)} & \textbf{Silhouette}
+& \textbf{Davies--B.} & \textbf{Calinski--H.} & \textbf{Stability}\\
+\midrule
+2  & 51,465 & --  & \textbf{0.103} & 2.716 & \textbf{502.3} & \textbf{0.947}\\
+3  & 48,751 & 5.3 & 0.081 & 3.046 & 387.8 & 0.851\\
+4  & 46,659 & 4.3 & 0.078 & 2.848 & 335.9 & 0.623\\
+5  & 44,709 & 4.2 & 0.082 & 2.666 & 310.9 & 0.816\\
+6  & 43,145 & 3.5 & 0.080 & 2.570 & 289.6 & 0.704\\
+7  & 41,837 & 3.0 & 0.075 & 2.458 & 271.8 & 0.787\\
+8  & 40,806 & 2.5 & 0.078 & 2.338 & 254.6 & 0.683\\
+9  & 39,982 & 2.0 & 0.074 & \textbf{2.251} & 238.7 & 0.602\\
+10 & 39,298 & 1.7 & 0.066 & 2.413 & 224.3 & 0.562\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{km_selection.png}{Elbow, silhouette and stability by k}
+\caption{Elbow curve, silhouette score and stability of K-Means for
+$k=2,\dots,10$. The dashed line marks the chosen $k=5$.}
+\label{fig:km-selection}
+\end{figure}
+
+\paragraph{Reading the indices.}
+\begin{itemize}
+  \item \textbf{Elbow.} The inertia falls smoothly (the drop shrinks from 5.3\%
+  to 1.7\% per extra cluster) and there is no sharp bend. The elbow method alone
+  therefore does not give a clear $k$, which is typical of data without
+  well-separated groups.
+  \item \textbf{Silhouette.} The global maximum is at $k=2$ (0.103), followed
+  by a plateau of 0.075--0.082 for $k=3,\dots,8$ with a local peak at $k=5$
+  (0.082).
+  \item \textbf{$k=2$ is too coarse.} The two clusters differ almost only in
+  tenure (mean z-scores of \texttt{YearsSinceLastPromotion}, \texttt{YearsAtCompany}
+  and \texttt{TotalWorkingYears} are $-0.53/{+}1.09$, $-0.48/{+}0.98$ and
+  $-0.36/{+}0.74$ in the two clusters, while all other features stay within
+  $\pm 0.1$). This corresponds to the first principal component
+  found in the PCA and cannot represent the workload, commute and satisfaction
+  profiles targeted by the project.
+  \item \textbf{Choice.} Restricting the search to $k \ge 3$,
+  $\mathbf{k = 5}$ has the highest silhouette (0.0819 against 0.0814 for
+  $k=3$), the lowest Davies--Bouldin value among $k=3,4,5$ (2.666), and a
+  high stability (ARI 0.82). $k=4$ and $k=6$ are clearly less stable (0.62 and
+  0.70). The margin between $k=3$ and $k=5$ is small; $k=5$ was kept because it
+  gives finer segments, and $k=3$ remains a valid coarser alternative
+  (stability 0.85).
+\end{itemize}
+
+\paragraph{Silhouette plot.}
+Figure~\ref{fig:km-silhouette} shows the silhouette of every employee for
+$k=5$. The five clusters have sizes 949, 556, 1,469, 740 and 696. The mean
+silhouette is 0.082 and only 3.2\% of employees have a negative value, so few
+employees are clearly assigned to the wrong cluster; but most values are small
+(below 0.2), meaning that the clusters touch each other rather than being
+isolated.
+
+\begin{figure}[H]
+\centering
+\safefig[0.6\textwidth]{km_silhouette_plot.png}{Silhouette plot for k = 5}
+\caption{Silhouette plot of K-Means with $k=5$.}
+\label{fig:km-silhouette}
+\end{figure}
+
+\paragraph{Clusters on the PCA and t-SNE maps.}
+Figure~\ref{fig:clusters-2d} shows the five K-Means clusters on the 2D maps of
+the previous section. The clusters are neighbouring regions of one continuous
+cloud, not separate islands, as expected from the low silhouette.
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{clusters_2d.png}{K-Means clusters on PCA and t-SNE}
+\caption{K-Means clusters ($k=5$) on the PCA (left) and t-SNE (right) maps.}
+\label{fig:clusters-2d}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\subsection{Hierarchical Clustering (Ward)}
+
+Agglomerative clustering with Ward linkage (minimum increase of within-cluster
+variance, Euclidean distance) was applied to the same matrix.
+Figure~\ref{fig:dendrogram} shows the dendrogram of the last 30 merges and the
+merge distance as a function of the number of clusters.
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{dendrogram_ward.png}{Ward dendrogram and merge distances}
+\caption{Ward dendrogram (left) and merge distance by number of clusters
+(right). The dashed line is the cut for $k=5$.}
+\label{fig:dendrogram}
+\end{figure}
+
+The merge distance decreases gradually: 88.0 for $k=2$, 67.1 for $k=3$, 60.1
+for $k=4$, 56.0 for $k=5$ and 51.2 for $k=6$. There is no large jump that
+would indicate a natural cut, so the dendrogram confirms that the data has a
+continuous rather than a clearly layered structure. Cutting at five clusters
+(the choice made for K-Means) gives sizes 989, 451, 434, 1,576 and 960.
+
+\begin{table}[H]
+\centering
+\caption{Ward model selection}
+\label{tab:ward}
+\small
+\begin{tabular}{rrrr}
+\toprule
+$k$ & \textbf{Silhouette} & \textbf{Davies--B.} & \textbf{Calinski--H.}\\
+\midrule
+2  & 0.073 & 2.976 & 319.3\\
+3  & 0.062 & 3.378 & 263.5\\
+4  & 0.045 & 3.543 & 235.8\\
+5  & 0.047 & 3.240 & 218.6\\
+6  & 0.048 & 3.060 & 204.6\\
+7  & 0.047 & 2.976 & 192.6\\
+8  & 0.044 & 2.989 & 184.6\\
+9  & 0.043 & 2.861 & 177.7\\
+10 & 0.038 & 2.711 & 169.5\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------
+\subsection{DBSCAN}
+
+DBSCAN finds dense regions and labels the remaining points as noise. It was used
+mainly to detect employees with unusual behaviour. With 13 features,
+\texttt{min\_samples} was set to $2 \times 13 = 26$.
+Figure~\ref{fig:kdist} shows the sorted distance of each employee to its
+26-th nearest neighbour, which guides the choice of \texttt{eps}.
+
+\begin{figure}[H]
+\centering
+\safefig[0.6\textwidth]{dbscan_kdist.png}{k-distance plot}
+\caption{k-distance plot ($k=26$). The dashed line marks $\varepsilon=3.0$.}
+\label{fig:kdist}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{DBSCAN sensitivity to $\varepsilon$ (\texttt{min\_samples}~=~26)}
+\label{tab:dbscan}
+\small
+\begin{tabular}{rrrr}
+\toprule
+$\varepsilon$ & \textbf{Clusters} & \textbf{Noise points} & \textbf{Noise (\%)}\\
+\midrule
+2.6 & 1 & 927 & 21.0\\
+2.8 & 1 & 348 & 7.9\\
+\textbf{3.0} & \textbf{1} & \textbf{105} & \textbf{2.4}\\
+3.2 & 1 & 33  & 0.7\\
+3.4 & 1 & 4   & 0.1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For every tested $\varepsilon$ DBSCAN returns \textbf{one single cluster}
+plus noise (Table~\ref{tab:dbscan}). The employees therefore form one connected
+dense region and no density-separated groups exist, which agrees with the
+dendrogram and the 2D projections. Because of this, DBSCAN cannot be used to
+segment the workforce and silhouette-type indices are not defined for it.
+It is used as an anomaly detector: $\varepsilon=3.0$ marks 105 employees
+(2.4\%) as noise, a share small enough to be reviewed individually.
+
+\begin{figure}[H]
+\centering
+\safefig[\textwidth]{dbscan_anomalies.png}{DBSCAN anomalies}
+\caption{The 105 DBSCAN anomalies on the t-SNE map (left) and their mean
+z-score per feature (right).}
+\label{fig:anomalies}
+\end{figure}
+
+Figure~\ref{fig:anomalies} shows what these employees have in common: they are
+high-level, long-hour employees with poor work-life balance. Compared with the
+average employee they have a higher \texttt{JobLevel} ($+0.94$), higher
+\texttt{AvgWorkHours} ($+0.87$), higher \texttt{MonthlyIncome} ($+0.69$) and
+longer commute ($+0.65$), and a much lower \texttt{WorkLifeBalance} ($-0.87$),
+shorter tenure and lower \texttt{JobInvolvement} ($-0.48$). As an external
+check, their attrition rate is \textbf{36.2\%}, against 15.6\% for the other
+employees, so the anomalies flag a group at real risk of leaving even though
+\texttt{Attrition} was never used by the algorithm.
+
+% ---------------------------------------------------------------------
+\subsection{Summary of Model Training}
+
+\begin{itemize}
+  \item \textbf{K-Means} was trained for $k=2,\dots,10$; $k=5$ was chosen
+  (silhouette 0.082, Davies--Bouldin 2.666, stability ARI 0.82), with $k=3$ as a
+  close and slightly more stable alternative. The five clusters have sizes 949,
+  556, 1,469, 740 and 696.
+  \item \textbf{Ward} clustering shows no natural cut in the dendrogram; the
+  tree was cut at five clusters (sizes 989, 451, 434, 1,576 and 960).
+  \item \textbf{DBSCAN} finds a single dense cluster for every tested
+  $\varepsilon$ and was used as an anomaly detector: 105 employees (2.4\%) at
+  $\varepsilon=3.0$, mostly high-level, long-hour employees with poor
+  work-life balance and a 36.2\% attrition rate.
+  \item All indices are low in absolute terms (silhouette below 0.11 for every
+  $k$). The data has weak group structure: the features are almost uncorrelated
+  and the points form one continuous cloud. The clusters are therefore read as
+  \emph{soft segments} along the main dimensions (tenure, workload, commute),
+  not as isolated natural groups, and their meaning is examined in the next
+  section.
+\end{itemize}
+% =====================================================================
 %                 LIST OF FIGURES AND LIST OF TABLES (END)
 % =====================================================================
 
