@@ -463,10 +463,11 @@ WorkLifeBalance & 38 & 0.86\%\\
 
 \subsubsection{Manager Dataset}
 
-The \texttt{manager} dataset contains three attributes
-(\texttt{EmployeeID}, \texttt{JobInvolvement} and
-\texttt{PerformanceRating}). All 4,410 records are non-null,
+The \texttt{manager} dataset contains three attributes:
+\texttt{EmployeeID}, \texttt{JobInvolvement} and
+\texttt{PerformanceRating}. All 4,410 records are non-null,
 so no missing values were detected in this file.
+
 
 \subsubsection{Attendance Datasets}
 
@@ -544,18 +545,20 @@ multiply rows. Two criteria were used: fully identical rows and repeated
 \texttt{EmployeeID}. Both checks returned 0, so no record was removed and the
 table keeps 4,410 employees.
 
-A third check compared the rows of \texttt{general} \emph{without} the
-identifier. Here 2,912 rows (66\%) are identical to another row in every
-column except \texttt{EmployeeID}: the file contains only 1,498 distinct
-profiles, most of them three times. The copies have different survey answers
-and attendance logs, so they are not plain duplicates and were kept. Their
-effect on the models is analysed in Section~\ref{sec:replicated}.
+A third check was performed on the \texttt{general} dataset after
+removing the \texttt{EmployeeID} column. The results showed that
+2,912 rows (66\%) had the same values in all other columns.
+This means that the dataset contained only 1,498 distinct employee
+profiles, with most profiles appearing three times. However, these
+records had different survey answers and attendance logs, so they
+were kept. The impact of these repeated profiles on the clustering
+results is discussed in Section~\ref{sec:replicated}.
 
 % ---------------------------------------------------------------------
 \subsection{Handling Missing Values}
 
-Missing values were not treated in the same way everywhere. The decision
-depends on \emph{why} a value is missing.
+Missing values were handled differently depending on the situation and the reason
+for missing data.
 
 \begin{table}[H]
 \centering
@@ -592,7 +595,7 @@ counts. Figure~\ref{fig:figure1} shows that both are right-skewed (skewness
 1.12 and 1.03): most employees have low values, while a small number have very
 high ones (up to 40 years of experience and up to 9 previous companies) that
 form a long upper tail. These extreme values pull the mean above the median
-($11.28$ vs.\ $10$ years; $2.69$ vs.\ $2$ companies), so the mean no longer
+($11.28$ vs $10$ years; $2.69$ vs $2$ companies), so the mean no longer
 describes a typical employee, and for an integer count it also produces
 non-integer values. The median is not affected by the tail, so it was used.
 
@@ -600,8 +603,7 @@ non-integer values. The median is not affected by the tail, so it was used.
 \centering
 \safefig{figure1.png}{Distribution of TotalWorkingYears and NumCompaniesWorked}
 \caption{Distribution of \texttt{TotalWorkingYears} and
-\texttt{NumCompaniesWorked} (box: interquartile range, orange line: median,
-circles: outliers beyond $1.5\times$IQR).}
+\texttt{NumCompaniesWorked}.}
 \label{fig:figure1}
 \end{figure}
 
@@ -663,8 +665,13 @@ that never happened. The cells were therefore handled in five steps:
   \text{AbsentRate}_i = \frac{\text{AbsentDays}_i}{N_{\text{work}}},
 \end{align}
 
-where $D_i$ is the set of valid days of employee $i$. Every employee has at
-least one valid day, so no median fallback was needed for these features.
+\noindent
+where $h_{i,d}$ is the working time of employee $i$ on day $d$,
+$D_i$ is the set of valid working days for employee $i$,
+$|D_i|$ is the number of valid days, and $N_{\text{work}}$
+is the total number of scheduled working days.
+A day is considered valid when both in-time and out-time
+records are available.
 
 \begin{table}[H]
 \centering
@@ -747,10 +754,6 @@ The 29 attributes of \texttt{df\_clean} are: 21 attributes of
 \texttt{PerformanceRating}) from \texttt{manager}, and 3 attendance
 features. The cleaned table has one row per employee and is ready for
 exploratory data analysis and feature selection.
-
-The complete code of every step is in the accompanying notebook (see the
-GitHub repository in Section~\ref{sec:intro}).
-
 
 % =====================================================================
 \section{Exploratory Data Analysis and Feature Selection}
@@ -980,7 +983,7 @@ DistanceFromHome        & Mann--Whitney & 7    & 7    & 0.926\\
 \end{tabular}
 
 \footnotesize Selected variables. Above the line: significant at
-$\alpha = 0.05$; below: not significant. The full table is in the notebook.
+$\alpha = 0.05$; below: not significant.
 \end{table}
 
 \begin{itemize}
@@ -997,7 +1000,7 @@ $\alpha = 0.05$; below: not significant. The full table is in the notebook.
   \item These results support using tenure, workload and satisfaction as
   clustering features. Distance from home is not linked to attrition but is
   kept to describe the commute dimension.
-  \item Caveat: many records are replicated in this dataset
+  \item Limitation: many records are replicated in this dataset
   (Section~\ref{sec:replicated}), so the effective sample is about 1,500
   rather than 4,410 and the p-values are optimistic. The large effects remain
   significant either way.
@@ -1025,16 +1028,33 @@ removing them barely changes the clusters.
 \caption{Selected clustering features}
 \label{tab:features}
 \small
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+\begin{tabularx}{\textwidth}{
+  >{\raggedright\arraybackslash}p{3.6cm}
+  >{\raggedright\arraybackslash}X
+  >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Group} & \textbf{Features} & \textbf{Purpose}\\
 \midrule
-Seniority \& pay & MonthlyIncome, JobLevel, TotalWorkingYears,
-  YearsAtCompany, YearsSinceLastPromotion & Senior vs.\ new staff, stagnation\\
-Workload \& attendance & AvgWorkHours, AbsentRate & Overload and absence\\
-Satisfaction \& engagement & EnvironmentSatisfaction, JobSatisfaction,
-  WorkLifeBalance, JobInvolvement & Well-being, engagement\\
-Commute \& travel & DistanceFromHome, BusinessTravel & Extra load outside working hours\\
+
+Seniority \& pay
+& \texttt{MonthlyIncome}, \texttt{JobLevel},
+  \texttt{TotalWorkingYears}, \texttt{YearsAtCompany},
+  \texttt{YearsSinceLastPromotion}
+& Describe employees' income, job level, and work experience.\\
+
+Workload \& attendance
+& \texttt{AvgWorkHours}, \texttt{AbsentRate}
+& Describe working hours and attendance patterns.\\
+
+Satisfaction \& engagement
+& \texttt{EnvironmentSatisfaction}, \texttt{JobSatisfaction},
+  \texttt{WorkLifeBalance}, \texttt{JobInvolvement}
+& Measure employees' satisfaction and involvement at work.\\
+
+Commute \& travel
+& \texttt{DistanceFromHome}, \texttt{BusinessTravel}
+& Describe commuting distance and business travel frequency.\\
+
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1042,22 +1062,51 @@ Commute \& travel & DistanceFromHome, BusinessTravel & Extra load outside workin
 \begin{table}[H]
 \centering
 \caption{Variables not used as clustering input}
-\label{tab:dropped}
+\label{tab:excluded_features}
 \small
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{5.6cm} >{\raggedright\arraybackslash}X}
+\begin{tabularx}{\textwidth}{
+  >{\raggedright\arraybackslash}p{4.2cm}
+  >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Variable} & \textbf{Reason}\\
 \midrule
-EmployeeID, Attrition & Identifier; Attrition is kept for external validation\\
-AbsentDays & Duplicate of AbsentRate ($\rho = 1.00$)\\
-YearsWithCurrManager & Redundant with YearsAtCompany ($\rho = 0.84$)\\
-Age & Redundant with TotalWorkingYears ($\rho = 0.66$)\\
-PerformanceRating & Only two values (3: 84.6\%, 4: 15.4\%) and tied to PercentSalaryHike\\
-PercentSalaryHike & Tied to PerformanceRating ($\rho = 0.63$), unrelated to the goal\\
-Education, NumCompaniesWorked, StockOptionLevel, TrainingTimesLastYear
-  & Not linked to the workload, satisfaction or seniority goals\\
-Department, JobRole, EducationField, MaritalStatus, Gender
-  & Nominal; used to profile the clusters after clustering\\
+
+\texttt{EmployeeID}, \texttt{Attrition}
+& \texttt{EmployeeID} is only an identifier.
+  \texttt{Attrition} is kept for external validation.\\
+
+\texttt{AbsentDays}
+& Duplicates the information in \texttt{AbsentRate}
+  ($\rho = 1.00$).\\
+
+\texttt{YearsWithCurrManager}
+& Highly correlated with \texttt{YearsAtCompany}
+  ($\rho = 0.84$), so it may provide redundant information.\\
+
+\texttt{Age}
+& Highly correlated with \texttt{TotalWorkingYears}
+  ($\rho = 0.66$), so it may provide redundant information.\\
+
+\texttt{PerformanceRating}
+& Has only two values (3: 84.6\%, 4: 15.4\%)
+  and is related to \texttt{PercentSalaryHike}.\\
+
+\texttt{PercentSalaryHike}
+& Related to \texttt{PerformanceRating}
+  ($\rho = 0.63$) and not directly related to the
+  main clustering goals.\\
+
+\texttt{Education}, \texttt{NumCompaniesWorked},
+\texttt{StockOptionLevel}, \texttt{TrainingTimesLastYear}
+& Not directly related to the main goals of describing
+  seniority, workload, and employee satisfaction.\\
+
+\texttt{Department}, \texttt{JobRole},
+\texttt{EducationField}, \texttt{MaritalStatus},
+\texttt{Gender}
+& Categorical variables used to describe the clusters
+  after clustering.\\
+
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1458,27 +1507,45 @@ employees, so the anomalies flag a group at real risk of leaving even though
 
 \begin{table}[H]
 \centering
-\caption{Comparison of the algorithms at $k=5$}
-\label{tab:comparison}
+\caption{Comparison of clustering algorithms at $k=5$}
+\label{tab:model_comparison}
 \small
-\begin{tabular}{lrrrl}
+\begin{tabularx}{\textwidth}{
+  >{\raggedright\arraybackslash}p{3.2cm}
+  c c c
+  >{\raggedright\arraybackslash}X}
 \toprule
-\textbf{Model} & \textbf{Silhouette} & \textbf{Davies--B.}
-& \textbf{Calinski--H.} & \textbf{Result}\\
+\textbf{Model} & \textbf{Silhouette} &
+\textbf{Davies-Bouldin} & \textbf{Calinski-Harabasz} &
+\textbf{Result}\\
 \midrule
-K-Means ($k=5$) & \textbf{0.082} & \textbf{2.666} & \textbf{310.9} & 5 segments\\
-Ward ($k=5$)    & 0.047 & 3.240 & 218.6 & 5 segments\\
-DBSCAN ($\varepsilon=3.0$) & -- & -- & -- & 1 cluster + 105 anomalies\\
+
+K-Means ($k=5$) & 0.082 & 2.666 & 310.9
+& 5 segments\\
+
+Ward ($k=5$) & 0.047 & 3.240 & 218.6
+& 5 segments\\
+
+DBSCAN ($\varepsilon=3.0$) & N/A & N/A & N/A
+& 1 cluster + 105 anomalies\\
+
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
-K-Means is better than Ward on all three indices, and DBSCAN finds no
-segmentation. \textbf{K-Means with $k=5$ is therefore selected} to segment the
-employees, and DBSCAN is kept as a complementary anomaly detector.
-Figure~\ref{fig:clusters-2d} shows the K-Means clusters on the PCA and t-SNE
-maps. The clusters are neighbouring regions of one continuous cloud, not
-separate islands, as expected from the low silhouette.
+K-Means performs better than Ward on all three evaluation
+indices, with a higher Silhouette Score and Calinski-Harabasz
+Index, and a lower Davies-Bouldin Index. DBSCAN identifies
+only one cluster and 105 noise points, so the three clustering
+indices cannot be calculated meaningfully.
+
+Therefore, K-Means with $k=5$ is selected as the main model
+for employee segmentation, while DBSCAN is kept as a
+complementary anomaly detection method. Figure~\ref{fig:clusters-2d} shows
+the K-Means clusters on the PCA and t-SNE maps. The clusters
+form neighbouring regions within one continuous cloud rather
+than separate islands, which is consistent with the low
+Silhouette Score.
 
 \begin{figure}[H]
 \centering
@@ -1622,14 +1689,22 @@ None (final model)         & 13 & 0.082 & 1.000\\
 \end{tabular}
 \end{table}
 
-Removing \emph{seniority \& pay}, \emph{workload} or \emph{commute} changes
-the partition substantially (ARI 0.27--0.52): these three groups
-\textbf{drive} the segmentation. Removing the four \emph{satisfaction} scores
-leaves the partition almost unchanged (ARI 0.90) and raises the silhouette.
-The survey scores add noise rather than structure, which matches the EDA
-(they are uncorrelated with every other variable). They are kept in the model
-because the project aims to describe satisfaction, but no segment should be
-expected to be defined by satisfaction alone.
+Removing \emph{seniority \& pay}, \emph{workload \& attendance},
+or \emph{commute \& travel} changes the clustering results
+considerably (ARI 0.27--0.52). This suggests that these three
+feature groups have a strong influence on the segmentation.
+
+In contrast, removing the four \emph{satisfaction} scores
+leaves the clustering results almost unchanged (ARI 0.90)
+and increases the Silhouette Score from 0.082 to 0.125.
+This suggests that satisfaction features have limited
+influence on the cluster structure, which is consistent
+with the EDA results showing weak correlations with most
+other features.
+
+These features are still kept because the project aims to
+describe employee satisfaction. However, the clusters should
+not be expected to be defined mainly by satisfaction levels.
 
 % ---------------------------------------------------------------------
 \subsection{Choice of $k$: $k=3$ vs.\ $k=5$}
@@ -1658,15 +1733,25 @@ Cluster sizes & 1,852 / 1,280 / 1,278 & 1,469 / 949 / 740 / 696 / 556\\
 \end{tabular}
 \end{table}
 
-The internal indices are almost tied: $k=3$ is slightly better on
-Calinski--Harabasz (which always favours small $k$) and stability, $k=5$ is
-clearly better on Davies--Bouldin. The decisive difference is external:
-$k=3$ only splits employees by tenure, so attrition varies only between 11\%
-and 25\%, whereas $k=5$ also isolates the overtime and long-commute groups and
-separates attrition much more sharply (8.6\% to 37.1\%, Cramér's $V$ 0.26
-instead of 0.16). Since the indices do not prefer either option, the better
-external validity and the more actionable segments justify $k=5$.
+The internal evaluation indices show that the two models
+have similar performance. The Silhouette Scores are almost
+the same. K-Means with $k=3$ has a higher Calinski-Harabasz
+Index and better stability, while $k=5$ has a lower
+Davies-Bouldin Index.
 
+The main difference is the relationship with employee
+attrition. With $k=3$, the attrition rates across clusters
+range from 11.4\% to 25.2\%. With $k=5$, the range is wider,
+from 8.6\% to 37.1\%. The Cramér's V also increases from
+0.159 to 0.255, showing a stronger association between
+the clusters and attrition.
+
+The five-cluster model provides more detailed employee
+groups, including overtime workers and long commuters.
+These groups help HR identify employees who may need
+different types of support. Therefore, K-Means with
+$k=5$ is selected as the final model because it provides
+more useful information for HR decision-making.
 % ---------------------------------------------------------------------
 \subsection{Effect of Replicated Records}
 \label{sec:replicated}
@@ -1982,17 +2067,26 @@ Table~\ref{tab:actions} summarises the evidence and the recommended actions.
 
 \paragraph{Limitations.}
 \begin{itemize}
-  \item The cluster structure is weak (silhouette 0.08): the segments are soft
-  regions of one continuous cloud, and employees near a border could belong to
-  a neighbouring segment.
-  \item The satisfaction scores add no structure (removing them barely changes
-  the partition), so the segmentation cannot identify satisfaction-based
-  groups.
-  \item The dataset is semi-synthetic: the 4,410 employees come from only
-  1,498 distinct profiles (Section~\ref{sec:replicated}), which inflates the
-  density used by DBSCAN and makes p-values optimistic; several attributes
-  behave like independent random values; attendance covers only 2015; and
-  K-Means assumes roughly spherical clusters of similar size.
+  \item The cluster structure is weak (Silhouette Score = 0.08).
+  The five clusters are not clearly separated but form neighbouring
+  regions within one continuous group of data points. Therefore,
+  employees near a cluster boundary may belong to a neighbouring
+  segment.
+
+  \item The satisfaction features have little influence on the
+  clustering results. Removing them barely changes the partition
+  (ARI = 0.90), so the model cannot clearly identify groups based
+  mainly on satisfaction levels.
+
+  \item The dataset has several limitations. Although it contains
+  4,410 employee records, only 1,498 distinct profiles were found
+  (Section~\ref{sec:replicated}). This may increase the density
+  estimated by DBSCAN and make statistical test results less
+  reliable because some observations are not independent.
+  In addition, several attributes behave like independent random
+  values, and attendance data only covers 2015. Finally, K-Means
+  assumes roughly spherical clusters of similar sizes, which may
+  not fully match the actual data structure.
 \end{itemize}
 
 \paragraph{Future work.} Gaussian Mixture Models (soft membership) or
